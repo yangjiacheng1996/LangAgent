@@ -1,0 +1,2 @@
+# LangAgent
+LangAgent是一个基于LangChain和LangGraph打造的通用型React智能体。
