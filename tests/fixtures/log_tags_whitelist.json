@@ -1,0 +1,57 @@
+{
+  "lifecycle_tags": [
+    "la.lifecycle.init.start",
+    "la.lifecycle.init.end",
+    "la.lifecycle.run.start",
+    "la.lifecycle.run.turn",
+    "la.lifecycle.run.tool_call",
+    "la.lifecycle.run.tool_result",
+    "la.lifecycle.run.model_response",
+    "la.lifecycle.eval.start",
+    "la.lifecycle.eval.case_done",
+    "la.lifecycle.eval.summary",
+    "la.lifecycle.doctor.check",
+    "la.lifecycle.doctor.report"
+  ],
+  "runtime_tags": [
+    "la.runtime.dir_load.start",
+    "la.runtime.dir_load.ok",
+    "la.runtime.dir_load.fail",
+    "la.runtime.config_resolve.start",
+    "la.runtime.config_resolve.priority_merge",
+    "la.runtime.config_resolve.ok",
+    "la.runtime.config_resolve.fail",
+    "la.runtime.model_adapt.start",
+    "la.runtime.model_adapt.ok",
+    "la.runtime.model_adapt.fail",
+    "la.runtime.tool_bind.start",
+    "la.runtime.tool_bind.register",
+    "la.runtime.tool_bind.ok",
+    "la.runtime.tool_bind.fail",
+    "la.runtime.graph_build.start",
+    "la.runtime.graph_build.ok",
+    "la.runtime.graph_build.fail",
+    "la.runtime.main_loop.turn.start",
+    "la.runtime.main_loop.turn.end",
+    "la.runtime.main_loop.model_call.start",
+    "la.runtime.main_loop.model_call.end",
+    "la.runtime.main_loop.tool_exec.start",
+    "la.runtime.main_loop.tool_exec.end",
+    "la.runtime.main_loop.interrupt",
+    "la.runtime.exit_cleanup.start",
+    "la.runtime.exit_cleanup.drain_spans",
+    "la.runtime.exit_cleanup.flush_events",
+    "la.runtime.exit_cleanup.ok",
+    "la.runtime.exit_cleanup.fail"
+  ],
+  "cross_cutting_tags": [
+    "la.cross_cutting.guardrail.block",
+    "la.cross_cutting.audit.write",
+    "la.cross_cutting.metrics.emit",
+    "la.cross_cutting.event_handler_error"
+  ],
+  "tool_tags": [
+    "la.tool.suspicious_missing_side_effects"
+  ],
+  "total_count": 46
+}
