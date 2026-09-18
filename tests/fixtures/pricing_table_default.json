@@ -1,0 +1,14 @@
+{
+  "gpt-4o": {
+    "prompt": 0.005,
+    "completion": 0.015
+  },
+  "gpt-4o-mini": {
+    "prompt": 0.00015,
+    "completion": 0.0006
+  },
+  "qwen3-8b": {
+    "prompt": 0.0,
+    "completion": 0.0
+  }
+}

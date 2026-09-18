@@ -1,0 +1,10 @@
+{
+  "test-model": {
+    "prompt": 0.001,
+    "completion": 0.002
+  },
+  "gpt-4o": {
+    "prompt": 0.005,
+    "completion": 0.015
+  }
+}
