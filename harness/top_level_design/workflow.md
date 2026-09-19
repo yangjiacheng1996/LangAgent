@@ -369,7 +369,7 @@ related_docs:
 
 - `model_timeout`：单次模型调用超时 → 退出码 70（EX_SOFTWARE）。
 - `tool_execution_error`：工具抛异常 → 退出码 1（通用失败）。
-- `guardrail_block`：guardrail middleware 拦截（如 ToolSideEffect 含 `WRITE_FILE` 且未审批）→ 退出码 1 + `AuditEntry.category=unauthorized_tool`。
+- `guardrail_block`：guardrail middleware 拦截（如工具 `requires_approval=True` 且未审批，或 strict 模式下任何工具调用）→ 退出码 1 + `AuditEntry.category=unauthorized_tool`。
 - `hitl_interrupted`：human-in-the-loop interrupt 触发（user 取消）→ 退出码 130（SIGINT）。
 - `token_limit_exceeded`：累计 token 用量超阈值 → 退出码 70（EX_SOFTWARE）。
 - `stage_capability_violation`：阶段读取 .env（应仅由 `config_resolve` 阶段完成）→ 退出码 1 + `la.cross_cutting.guardrail.block`。
@@ -543,7 +543,7 @@ related_docs:
 - **含义**：`langagent init` 收尾处发出。
 - **触发阶段**：`exit_cleanup`。
 - **典型时机**：目录骨架创建完毕、模板文件全部落盘后。
-- **发射方（review.md v2.1.0 P1-2 修复明确）**：F06 `runtime_exit_handler.cleanup()`（`init_only=True` 模式分支；F01 init dispatch 末尾调 `exit_handler.cleanup(state=None, config=None, *, init_only=True)` 走极简分支；F06 §3.3 step 10 发射 `la.lifecycle.init.end`）。**F02 §3.5 `write_template()` 收尾不再发射 `init.end`**，仅发 `init.start`。
+- **发射方（review.md v2.1.0 P1-2 修复明确 + review.md v3.0.0 P2-5 修复归属纠正）**：F09 `runtime_exit_handler.cleanup()`（`init_only=True` 模式分支；F10 init dispatch 末尾调 `exit_handler.cleanup(state=None, config=None, *, init_only=True)` 走极简分支；F09 §3.3 step 10 发射 `la.lifecycle.init.end`）。**F06 §3.5 `write_template()` 收尾不再发射 `init.end`**，仅发 `init.start`。
 
 ### `la.lifecycle.run.start` {#log-tag-la-lifecycle-run-start}
 
@@ -822,8 +822,8 @@ related_docs:
 
 - **含义**：护栏拦截。
 - **触发阶段**：`main_loop`。
-- **典型时机**：middleware 检测到 ToolSideEffect 越权（如未审批的 WRITE_FILE）。
-- **发射方**：F09 `cross_cutting_guardrail_middleware.evaluate()` 决定 interrupt 时。
+- **典型时机**：middleware 检测到工具调用需要审批（工具级 `requires_approval=True` 或全局 mode 要求拦截）。
+- **发射方**：F04 `cross_cutting_guardrail_middleware.evaluate()` 决定 interrupt 时。
 
 ### `la.cross_cutting.audit.write` {#log-tag-la-cross-cutting-audit-write}
 
@@ -848,18 +848,8 @@ related_docs:
 - **扩展接口登记**：本 tag 属于 §"扩展接口约定"（仿照 EvalTaskSpec / AuditEntry 的 `*_extensibility` 模式）登记的扩展位；未来 Event 总线自身的错误类别可在 `la.cross_cutting.event_handler_error.*` 前缀下扩展。
 - **发射方**：F07 `protocol_event_bus.publish()` handler 异常隔离时（通过 F08 logger.emit 接口）。
 
-### `la.tool.suspicious_missing_side_effects` {#log-tag-la-tool-suspicious-missing-side-effects}
-
-- **含义**：tool 未声明 `SIDE_EFFECTS` 常量时 F04 静态属性警告（review.md v0.1.0 R-001 修复新增；原 F04 措辞"新增 event_type"修订为 logger tag）。
-- **触发阶段**：`dir_load`（F04 在 `register_all()` 内部每个 tool 加载时检查）。
-- **典型时机**：tool 模块级未声明 `SIDE_EFFECTS` 常量 → F04 默认填 `[ToolSideEffect.NONE]` + 发此 tag；payload 含 `tool_id` / `agent_dir`。
-- **来源依据**：F04 §3.4 "未声明 SIDE_EFFECTS 默认填 [ToolSideEffect.NONE]，发 la.tool.suspicious_missing_side_effects 警告日志"；F04 §4.2 `test_tool_side_effects_default_empty` 测试。
-- **扩展接口登记**：本 tag 属于 tool.* 命名空间的扩展位；未来 F04 / F09 可在 `la.tool.*` 前缀下扩展更多 tool 静态属性警告（如 `la.tool.legacy_api` / `la.tool.missing_requires_approval`）。
-- **发射方**：F04 `protocol_tool_registry.register_all()`（通过 `from langagent.cross_cutting.logger import emit` 调用 F08 logger 接口）。
-- **设计权衡（review.md v0.1.0 R-001 修复方案 A）**：走 logger 路径不通过 event bus——该 tag 是 tool 静态属性警告（注册期一次），不是运行时动作通知（每次 tool_call 一次）；F08 `ALLOWED_TAGS` 集合 45 → **46 项**。
-
 > 与宪法第 XIII 条关系：所有标签以 `la.` 前缀开头；不出现 LangSmith 镜像名 / 环境变量名。
-> 覆盖范围（review.md v0.3.0 M-4 / s-1 + v0.1.0 R-001 修复后）：6 个阶段中 `dir_load` 3 个 / `config_resolve` 4 个 / `model_adapt` 4 个 / `graph_compose` 5 个 / `main_loop` 7 个 / `exit_cleanup` 6 个；加上 lifecycle.* / cross_cutting.* / tool.* 横切标签，**标签总数 = 46 个**（原 26 个 + review.md v0.3.0 s-1 修复后增补 19 个 stage-internal 标签 + v0.4.0 M-NEW-3 修复后 `la.cli.*` 12 个 rename 为 `la.lifecycle.*` + v0.1.0 R-001 新增 `la.tool.*` 1 个）。
+> 覆盖范围（review.md v0.3.0 M-4 / s-1 修复后）：6 个阶段中 `dir_load` 3 个 / `config_resolve` 4 个 / `model_adapt` 4 个 / `graph_compose` 5 个 / `main_loop` 7 个 / `exit_cleanup` 6 个；加上 lifecycle.* / cross_cutting.* 横切标签，**标签总数 = 45 个**（原 26 个 + review.md v0.3.0 s-1 修复后增补 19 个 stage-internal 标签 + v0.4.0 M-NEW-3 修复后 `la.cli.*` 12 个 rename 为 `la.lifecycle.*`）。
 > 锚点形式：点号替换为短横线（FR-016 / FR-041）。
 > 发射方约束：所有 `la.lifecycle.*` / `la.runtime.*` / `la.cross_cutting.*` / `la.tool.*` 标签的发射方严格在 runtime / protocol / cross_cutting 层（按 workflow.md 触发阶段归属）；CLI 层（`langagent/cli/`）严禁 `import cross_cutting_logger` 或直接调用 `.emit()`（architecture_modules.md#mod-cli-parser 硬约束）。
 
@@ -882,7 +872,7 @@ related_docs:
 | middleware | `harness/Managed_deep_agents/langsmith/python/managed-deep-agents-middleware.md` | `graph_compose` | 中间件规范对应 MiddlewareSpec |
 | project-structure | `harness/Managed_deep_agents/langsmith/python/managed-deep-agents-project-structure.md` | `dir_load` | 智能体目录结构与宪法第 V 条对齐 |
 | skills | `harness/Managed_deep_agents/langsmith/python/managed-deep-agents-skills.md` | `dir_load` / `graph_compose` | 技能加载对应 SkillSpec / SkillFrontmatter |
-| tools | `harness/Managed_deep_agents/langsmith/python/managed-deep-agents-tools.md` | `dir_load` / `graph_compose` | 工具注册对应 ToolSpec / ToolSideEffect |
+| tools | `harness/Managed_deep_agents/langsmith/python/managed-deep-agents-tools.md` | `dir_load` / `graph_compose` | 工具注册对应 ToolSpec |
 | sandboxes | `harness/Managed_deep_agents/langsmith/python/managed-deep-agents-sandboxes.md` | （v1 预留接口） | MDA 提供 docker / firecracker；LangAgent SandboxSpec 预留接口，v1 不实现 |
 | schedules | `harness/Managed_deep_agents/langsmith/python/managed-deep-agents-schedules.md` | （v1 预留接口） | MDA 提供 cron 调度；LangAgent ScheduleSpec 预留接口，v1 不实现 |
 | memory | `harness/Managed_deep_agents/langsmith/python/managed-deep-agents-memory.md` | （v1 预留接口） | MDA 提供 long-term memory；LangAgent MemorySpec 预留接口，v1 不实现 |
@@ -911,7 +901,7 @@ related_docs:
 
 - Schema 锚点示例：`module_schemas.md#schema-agent-state`（AgentState 5 字段 reducer 规则；reducer 实现位于 primitives 层）。
 - Schema 锚点示例：`module_schemas.md#schema-runtime-config`（RuntimeConfig 优先级链）。
-- Schema 锚点示例：`module_schemas.md#schema-tool-spec-side-effect`（ToolSideEffect 7 个枚举值）。
+- Schema 锚点示例：`module_schemas.md#schema-tool-spec`（ToolSpec 工具规范定义）。
 - Schema 锚点示例：`module_schemas.md#schema-audit-entry`（AuditEntry 3 个安全事件类别）。
 
 ### 引用宪法

@@ -34,7 +34,7 @@
 我已经更新了spec和plan，请你更新tasks
 
 # /speckit.analyse
-
+我更新了spec、plan、tasks，请你检查三者内容是否有问题，是否对齐。如果遇到难以决策的地方可以question问我，提问时给出推荐选项，语言中文。
 
 # analyse之后
 好的，我看到你发现了一些问题。

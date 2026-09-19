@@ -11,7 +11,7 @@ import threading
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Callable, NewType, Any
+from typing import Callable, NewType, Any, Dict, Coroutine
 
 from langagent.protocol.event_types import ALLOWED_EVENT_TYPES
 
@@ -45,7 +45,7 @@ class Event:
     event_type: str
     emitted_at: str  # ISO 8601 UTC timestamp with 'Z' suffix
     source: str
-    payload: dict
+    payload: Dict[str, Any]
     trace_id: str
     
     @classmethod
@@ -53,7 +53,7 @@ class Event:
         cls,
         event_type: str,
         source: str,
-        payload: dict,
+        payload: Dict[str, Any],
         trace_id: str = "-"
     ) -> "Event":
         """
@@ -149,6 +149,9 @@ class EventBus:
         Handlers are executed in FIFO order (registration order).
         Handler exceptions are caught and logged, but do not propagate.
         
+        Note: Handlers execute in a thread pool for non-blocking operation.
+        Call flush() to wait for all pending handlers to complete.
+        
         Args:
             event: The event to publish
             
@@ -166,7 +169,7 @@ class EventBus:
         with self._lock:
             handlers = self._subscribers.get(event.event_type, []).copy()
         
-        # Execute handlers outside lock (for concurrency)
+        # Execute handlers in thread pool (for non-blocking publish)
         for token, handler in handlers:
             future = self._executor.submit(self._execute_handler, handler, event, token)
             with self._lock:
@@ -251,7 +254,7 @@ class EventBus:
         with self._lock:
             self._event_buffer.append(event)
     
-    async def _execute_async_handler(self, handler: Callable[[Event], None], event: Event, token: SubscriptionToken) -> None:
+    async def _execute_async_handler(self, handler: Callable[[Event], Coroutine[Any, Any, None]], event: Event, token: SubscriptionToken) -> None:
         """Execute an async handler."""
         await handler(event)
     

@@ -139,7 +139,7 @@ The exit handler collects all accumulated events via `drain_events()` to write t
 - **FR-005**: System MUST log handler exceptions using the `la.cross_cutting.event_handler_error` tag via F02 logger interface
 - **FR-006**: System MUST maintain an internal error counter for handler failures (not exposed in MetricsSnapshot, internal diagnostic only)
 - **FR-007**: System MUST be thread-safe using `threading.RLock` to protect subscriber list and event buffer from race conditions
-- **FR-008**: System MUST enforce an event type whitelist containing at least 13 registered types (tool_call, tool_result, model_response, guardrail_block, skill_loaded, skill_load_failed, tool_registered, graph_composed, eval_task_started, eval_task_done, audit_written, metrics_snapshot, event_handler_error)
+- **FR-008**: System MUST enforce an event type whitelist containing exactly 13 registered types (tool_call, tool_result, model_response, guardrail_block, skill_loaded, skill_load_failed, tool_registered, graph_composed, eval_task_started, eval_task_done, audit_written, metrics_snapshot, event_handler_error)
 - **FR-009**: System MUST throw `UnknownEventTypeError` when attempting to publish an event type not in the whitelist
 - **FR-010**: System MUST provide `subscribe(event_type, handler)` that returns a `SubscriptionToken` for later unsubscription
 - **FR-011**: System MUST provide `unsubscribe(token)` that removes the handler and is idempotent (can be called multiple times safely)
@@ -165,8 +165,8 @@ The exit handler collects all accumulated events via `drain_events()` to write t
 
 ### Measurable Outcomes
 
-- **SC-001**: Event publication latency (time from publish call to all handlers invoked) remains under 10ms for 3 subscribers on single event
-- **SC-002**: System successfully publishes and delivers 1,000 events per second without event loss or memory leak
+- **SC-001**: Event publication P95 latency (time from publish call to all handlers invoked) remains under 10ms for 3 subscribers on single event
+- **SC-002**: System sustains 1,000 events per second throughput for at least 10 seconds without event loss or memory leak
 - **SC-003**: Handler exception isolation verified - 100% of remaining handlers execute even when one handler fails in 100% of test cases
 - **SC-004**: Thread safety verified - 10 concurrent threads publishing 100 events each results in exactly 1,000 events in buffer with no corruption
 - **SC-005**: Flush operation completes within timeout for 95% of test cases with handlers completing in under 5 seconds
@@ -186,3 +186,4 @@ The exit handler collects all accumulated events via `drain_events()` to write t
 - Async event handlers are only used with `publish_async()` - calling `publish()` with async handlers is not supported
 - Event buffer does not need size limits for v1 (unbounded growth acceptable for single agent run lifetime)
 - System has sufficient memory to hold all events in buffer until drain (typical runs produce < 10,000 events)
+- ToolSpec schema v0.2.0 removed the `side_effects` field in favor of three-level guardrail mode (all/smart/strict) with `requires_approval` per-tool annotation; F03 event bus does not publish or consume side effect metadata

@@ -93,12 +93,12 @@ related_docs:
 
 ## 模块清单
 
-> 5 层共 **20 个模块**（cli 3 / runtime 4 / protocol 3 / cross_cutting **5** / primitives 5），总模块数 ≥ 12（FR-022 / R-1.3；**v0.2.0 M-3 修复后**：新增 `primitives_langchain_types`，17 → 18；**v0.4.0 M-4 方案 C 修复后**：新增 `primitives_state_reducers`，18 → 19；**v0.5.0 修复（评审 v0.1.0 §二.A.3 方案 A）**：EventBusProtocol 接口定义职责合并入 `cross_cutting_logger` 模块，模块总数仍为 19；**v2.3.0 修复（review.md v2.2.2 P0-1 方案 A'）**：新增 `cross_cutting_stage_guard` 模块，19 → **20**；`stage_guard.py` 从 `langagent/runtime/stage_guard.py`（F02 runtime 内部工具）移到 `langagent/cross_cutting/stage_guard.py`（F02 拥有但归属于 cross_cutting 层），cross_cutting 层 4 → 5）。
+> 5 层共 **21 个模块**（cli 3 / runtime 4 / protocol 3 / cross_cutting **5** / primitives 5 / 跨层整合 1），总模块数 ≥ 12（FR-022 / R-1.3；**v0.2.0 M-3 修复后**：新增 `primitives_langchain_types`，17 → 18；**v0.4.0 M-4 方案 C 修复后**：新增 `primitives_state_reducers`，18 → 19；**v0.5.0 修复（评审 v0.1.0 §二.A.3 方案 A）**：EventBusProtocol 接口定义职责合并入 `cross_cutting_logger` 模块，模块总数仍为 19；**v2.3.0 修复（review.md v2.2.2 P0-1 方案 A'）**：新增 `cross_cutting_stage_guard` 模块，19 → 20；**v2.4.0 review.md P1-3 修复后**：新增跨层整合模块 `eval_runner`，20 → **21**；`stage_guard.py` 从 `langagent/runtime/stage_guard.py`（F02 runtime 内部工具）移到 `langagent/cross_cutting/stage_guard.py`（F02 拥有但归属于 cross_cutting 层），cross_cutting 层 4 → 5）。
 > 每个 `module_id` 全局唯一（Q8），跨层重名时带层语义前缀（如 `cli_runner` / `runtime_dir_loader` / `cross_cutting_stage_guard`）。
 > 每个模块以 `### <module_id> {#mod-<module-id>}` 显式锚点（FR-026）。
-> （评审 m-2 修复：早期版本误写为 "5 层共 15 个模块（每层 3 个）"，但 runtime 层实际有 4 个模块，cross_cutting 层有 4 个模块，primitives 层 v0.4.0 后有 5 个模块；当前版本以 20 为准。）
-> **外加 F11 提供的 `eval_runner`（21st module_id 跨 runtime / cli 整合模块）**：位于 `langagent/eval/runner.py`，由 F11 实现；F01 dispatch 通过 `from langagent.eval.runner import run` 形式调用（**review.md M-4 修复**）；**v2.4.0 review.md P1-3 修复后**：`eval_runner` 进入依赖矩阵 21×21 计数（21st module_id），`cli_runner → eval_runner` 是显式登记边。
-> **外加 F11 提供的 5 graders（跨层整合子模块，不计入 module_id 计数）**：位于 `langagent/eval/graders/{exact_match,contains,regex,llm_judge,tool_call_match}.py`，由 F11 Phase 2 实现；统一接口 `grade(actual, expected, **kwargs) -> bool`；`__init__.py` 提供 grader 路由表 `GRADER_REGISTRY: dict[str, GradeFunction]`；不计入 21 个 module_id 计数（与 `eval_runner` 同属"跨层整合模块"），仅作 F11 内部实现细节；**v2.4.0 review.md P2-3 修复后**显式登记。
+> （评审 m-2 修复：早期版本误写为 "5 层共 15 个模块（每层 3 个）"，但 runtime 层实际有 4 个模块，cross_cutting 层有 4 个模块，primitives 层 v0.4.0 后有 5 个模块；v2.4.0 后含跨层整合模块共 21 个。）
+> **跨层整合模块 `eval_runner`（21st module_id）**：位于 `langagent/eval/runner.py`，由 F11 实现；跨 runtime / cli 层整合；F01 dispatch 通过 `from langagent.eval.runner import run` 形式调用（**review.md M-4 修复**）；**v2.4.0 review.md P1-3 修复后**进入依赖矩阵 21×21 计数，`cli_runner → eval_runner` 是显式登记边。
+> **F11 提供的 5 graders（跨层整合子模块，不计入 module_id 计数）**：位于 `langagent/eval/graders/{exact_match,contains,regex,llm_judge,tool_call_match}.py`，由 F11 Phase 2 实现；统一接口 `grade(actual, expected, **kwargs) -> bool`；`__init__.py` 提供 grader 路由表 `GRADER_REGISTRY: dict[str, GradeFunction]`；不计入 21 个 module_id 计数（与 `eval_runner` 同属"跨层整合模块"），仅作 F11 内部实现细节；**v2.4.0 review.md P2-3 修复后**显式登记。
 
 ### `cli_runner` {#mod-cli-runner}
 
@@ -359,11 +359,11 @@ related_docs:
 
 ### `protocol_tool_registry` {#mod-protocol-tool-registry}
 
-> `protocol` 层模块 3：ToolSpec / ToolSideEffect 注册表（宪法第 V 条 tools/ 子目录）。
+> `protocol` 层模块 3：ToolSpec 注册表（宪法第 V 条 tools/ 子目录）。
 
 #### 职责
 
-- 主职责：扫描 `tools/<tool_name>.py`，加载 `BaseTool` 子类，构造 ToolSpec（含 side_effects 标注）。
+- 主职责：扫描 `tools/<tool_name>.py`，加载 `BaseTool` 子类，构造 ToolSpec。
 - 副职责：在 `graph_compose` 阶段将 ToolSpec 列表注入 LangGraph 图。
 
 #### 关键 API
@@ -420,7 +420,7 @@ related_docs:
 #### 关键约束
 
 - EventBusProtocol 接口定义必须先于 F07 `protocol_event_bus` 实现冻结（接口先于实现原则）；F07 严格实现本接口。
-- 9 个 tag 发射方 feature（F02 / F03 / F05 / F06 / F07 / F08 / F09 / F10 / F11）通过 `from langagent.cross_cutting.logger import emit` 调用；本模块 `ALLOWED_TAGS` 集合 ≥ **46** 项校验（review.md v0.3.0 s-1 / s-2 / s-5 + v0.1.0 R-001 修复后：原 45 项 + 新增 `la.tool.suspicious_missing_side_effects` 1 项 = 46 项）。
+- 9 个 tag 发射方 feature（F02 / F03 / F04 / F05 / F06 / F07 / F08 / F10 / F11）通过 `from langagent.cross_cutting.logger import emit` 调用；本模块 `ALLOWED_TAGS` 集合 ≥ **45** 项校验（review.md v0.3.0 s-1 / s-2 / s-5 修复后；三级模式设计移除 `la.tool.suspicious_missing_side_effects` tag）。
 
 ---
 
@@ -432,7 +432,7 @@ related_docs:
 
 - 主职责：实现 6 阶段能力边界的 runtime enforcement；提供 `@stage_guard_decorator(stage_name, *, monkeypatch_blacklist=None, audit_event_blacklist=None)` 装饰器，进入时 push 黑名单（monkeypatch + audit_hook），退出时 pop 恢复原始方法。
 - 副职责 1：定义 `StageCapabilityViolationError` 异常（命中黑名单时抛出）；monkeypatch 子系统（`Monkeystack`）+ audit_hook 子系统（基于 `sys.addaudithook` 拦截 `open` / `import` / `compile` / `exec` 4 类内置事件）。
-- 副职责 2：维护 6 阶段黑名单注册表（**权威源**；F02 §3.4 `{#stage-blacklist-table}` 锚点指向）；6 阶段 = `dir_load` / `config_resolve` / `model_adapt` / `graph_compose` / `main_loop` / `exit_cleanup`。
+- 副职责 2：维护 6 阶段黑名单注册表（**权威源**；F06 §3.4 `{#stage-blacklist-table}` 锚点指向）；6 阶段 = `dir_load` / `config_resolve` / `model_adapt` / `graph_compose` / `main_loop` / `exit_cleanup`。
 
 #### 关键 API
 
@@ -560,13 +560,14 @@ STAGE_BLACKLIST_TABLE: dict[str, dict[str, list[type | str]]] = {
 
 #### 职责
 
-- 主职责：根据 ToolSideEffect 标注决定是否触发 human-in-the-loop interrupt；拦截越权 tool 调用。
+- 主职责：根据三级模式（all / smart / strict）和工具级 `requires_approval` 标注决定是否触发 human-in-the-loop interrupt；拦截越权 tool 调用。
 - 副职责：通过 LangChain `AgentMiddleware` 协议注入到 LangGraph 图；不修改业务节点。
 
 #### 关键 API
 
 - `def build_middleware(policy: GuardrailPolicy) -> AgentMiddleware`：构造 middleware 实例。
-- `def evaluate(side_effects: list[ToolSideEffect]) -> GuardrailDecision`：决策。
+- `def evaluate(tool_spec: ToolSpec, config: RuntimeConfig) -> GuardrailDecision`：决策（基于工具级 requires_approval + 全局 mode）。
+- `def is_internal(endpoint: str, patterns: list[str]) -> bool`：判断 endpoint 是否为内网地址。
 
 #### 允许的依赖方向
 
@@ -798,7 +799,7 @@ def overwrite_or_merge(current: dict[str, Any] | None, update: dict[str, Any] | 
 - `CHK-AR-004 | 3 份文档均为 UTF-8 编码且无 BOM 且 LF 行尾 | file --mime-encoding workflow.md architecture_modules.md module_schemas.md 输出均为 utf-8；head -c 3 <file> | xxd 不含 efbbbf；grep -q $'\r' <file> 输出非 0`
 - `CHK-AR-005 | 阶段锚点命名空间符合 FR-041 | grep -cE '\{#stage-(dir_load|config_resolve|model_adapt|graph_compose|main_loop|exit_cleanup)\}' workflow.md 输出 = 6`
 - `CHK-AR-006 | 模块锚点命名空间符合 FR-041 | grep -cE '\{#mod-[a-z][a-z0-9-]+\}' architecture_modules.md 输出 = 21`（**review.md v0.5.0 §四.C-4 修复**：原值 15 已过期；v0.4.0 M-4 方案 C 修复后模块总数 18 → 19；v0.5.0 评审 v0.1.0 §二.A.3 方案 A 修复后 EventBusProtocol 接口合并入 logger，模块总数仍为 19；**v2.3.0 review.md v2.2.2 P0-1 修复后新增 `cross_cutting_stage_guard`，19 → 20**；**v2.4.0 review.md v1.0.0 P1-3 修复后新增 `eval_runner`，20 → 21**）
-- `CHK-AR-007 | schema 锚点命名空间符合 FR-041 | grep -cE '\{#schema-(agent-state|state-reducers|runtime-config|loaded-agent|middleware-spec|channel-spec|channel-context|sandbox-spec|schedule-spec|memory-spec|identity-spec|eval-task-spec|event|metrics-snapshot|audit-entry|doctor-report|eval-report|eval-run-result|skill-spec-frontmatter|tool-spec-side-effect|span-trace|runtime-config-snapshot)\}' module_schemas.md 输出 ≥ 22`（**review.md v0.5.0 §二.A.1 修复**：新增 `eval-run-result` 锚点；总数 21 → 22）
+- `CHK-AR-007 | schema 锚点命名空间符合 FR-041 | grep -cE '\{#schema-(agent-state|state-reducers|runtime-config|loaded-agent|middleware-spec|channel-spec|channel-context|sandbox-spec|schedule-spec|memory-spec|identity-spec|eval-task-spec|event|metrics-snapshot|audit-entry|doctor-report|eval-report|eval-run-result|skill-spec-frontmatter|tool-spec|span-trace|runtime-config-snapshot|guardrail-policy)\}' module_schemas.md 输出 ≥ 23`（**review.md v0.5.0 §二.A.1 修复**：新增 `eval-run-result` 锚点；总数 21 → 22；**v2.1.0 P1-4 修复**：移除 `tool-spec-side-effect`，新增 `guardrail-policy`，总数 22 → 23）
 - `CHK-AR-008 | 退出码锚点命名空间符合 FR-041 | grep -cE '\{#exit-code-[0-9]+\}' workflow.md 输出 = 13`（**review.md v0.5.0 §四.C-7 修复**：原 12 已过期；新增退出码 67 = name_already_exists）
 - `CHK-AR-009 | 日志标签锚点命名空间符合 FR-041 | grep -cE '\{#log-tag-la-[a-z0-9-]+\}' workflow.md 输出 ≥ 15`
 - `CHK-AR-010 | 依赖矩阵 4 符号完整且无回路 | python3 脚本提取矩阵 → 拓扑排序 → 输出无回路`
@@ -837,7 +838,7 @@ def overwrite_or_merge(current: dict[str, Any] | None, update: dict[str, Any] | 
 
 - Schema 锚点示例：`module_schemas.md#schema-agent-state`（AgentState 5 字段 reducer）。
 - Schema 锚点示例：`module_schemas.md#schema-runtime-config`（RuntimeConfig 优先级链）。
-- Schema 锚点示例：`module_schemas.md#schema-tool-spec-side-effect`（ToolSideEffect 7 枚举）。
+- Schema 锚点示例：`module_schemas.md#schema-tool-spec`（ToolSpec 工具规范定义）。
 - Schema 锚点示例：`module_schemas.md#schema-span-trace`（Span / Trace 合并章节）。
 
 ### 引用宪法

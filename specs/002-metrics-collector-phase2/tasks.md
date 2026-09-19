@@ -2,221 +2,198 @@
 
 **Input**: Design documents from `/specs/002-metrics-collector-phase2/`
 
-**Prerequisites**: plan.md (required), spec.md (required for user stories)
+**Prerequisites**: plan.md (required), spec.md (required for user stories), research.md
 
-**Tests**: Tests are REQUIRED per 宪法第 VIII 条 (TDD 刚性约束). All test tasks follow Red-Green-Refactor cycle.
+**Tests**: Test tasks included per TDD requirement in F02 Feature Prompt §四.2 (18+ test cases)
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: Can run in parallel (different files, no dependencies)
-- **[Story]**: Which user story this task belongs to (e.g., US1, US4, US5)
+- **[Story]**: Which user story this task belongs to (e.g., US1, US2, US3)
 - Include exact file paths in descriptions
 
 ## Path Conventions
 
+Per plan.md project structure:
 - Source: `langagent/cross_cutting/metrics_collector.py`
 - Tests: `tests/cross_cutting/test_metrics_collector.py`
-- Fixtures: `tests/fixtures/pricing_table_*.json`
+- Fixtures: `tests/fixtures/pricing_table_default.json`, `tests/fixtures/pricing_table_test.json`
 
 ---
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-**Purpose**: Project initialization and basic structure
+**Purpose**: Project initialization and test fixtures
 
-- [ ] T001 Create `langagent/cross_cutting/metrics_collector.py` module file with module docstring
-- [ ] T002 Create `tests/cross_cutting/test_metrics_collector.py` test file with pytest imports
-- [ ] T003 [P] Create `tests/fixtures/pricing_table_default.json` with default model prices (gpt-4o, gpt-4o-mini, qwen3-8b)
-- [ ] T004 [P] Create `tests/fixtures/pricing_table_test.json` with test model prices for unit tests
+- [x] T001 Create pricing table fixtures: runtime default at ~/.local/share/langagent/pricing.json with gpt-4o, gpt-4o-mini, qwen3-8b prices (used by production code); test fixture at tests/fixtures/pricing_table_test.json with mock prices (used by unit tests only)
+- [x] T002 [P] Create test pricing table fixture in tests/fixtures/pricing_table_test.json with mock prices for testing
+- [x] T003 [P] Create test file tests/cross_cutting/test_metrics_collector.py with pytest imports and setup
 
 ---
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-**Purpose**: Core data structures that MUST be complete before ANY user story can be implemented
+**Purpose**: Core data structures that ALL user stories depend on
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 [P] Define `LatencySample` dataclass with 4 fields (operation, latency_ms, timestamp, event_id) in langagent/cross_cutting/metrics_collector.py
-- [ ] T006 [P] Define `TokenUsageSample` dataclass with 5 fields (model_name, prompt_tokens, completion_tokens, timestamp, event_id) in langagent/cross_cutting/metrics_collector.py
-- [ ] T007 [P] Define `ErrorSample` dataclass with 3 fields (operation, timestamp, event_id) in langagent/cross_cutting/metrics_collector.py
-- [ ] T008 [P] Define `MetricsSnapshot` frozen dataclass with 9 fields (Optional[float] for percentiles) in langagent/cross_cutting/metrics_collector.py
-- [ ] T009 [P] Test: Write failing test for `MetricsSnapshot` immutability (`test_snapshot_returns_frozen_dataclass`) in tests/cross_cutting/test_metrics_collector.py
-- [ ] T010 Initialize module-level variables: `_lock`, `_latency_samples`, `_token_samples`, `_error_samples`, `_event_id_window` in langagent/cross_cutting/metrics_collector.py
-- [ ] T011 [P] Test: Write failing test for dataclass field types and defaults in tests/cross_cutting/test_metrics_collector.py
+- [x] T004 Define MetricsSnapshot frozen dataclass with 9 fields (window_start, window_end, sample_count, p50_latency_ms, p95_latency_ms, p99_latency_ms, error_rate, token_usage, cost_usd) in langagent/cross_cutting/metrics_collector.py
+- [x] T005 [P] Define LatencySample dataclass with 4 fields (operation, latency_ms, timestamp, event_id) in langagent/cross_cutting/metrics_collector.py
+- [x] T006 [P] Define TokenUsageSample dataclass with 5 fields (model_name, prompt_tokens, completion_tokens, timestamp, event_id) in langagent/cross_cutting/metrics_collector.py
+- [x] T007 [P] Define ErrorSample dataclass with 3 fields (operation, timestamp, event_id) in langagent/cross_cutting/metrics_collector.py
+- [x] T008 Initialize module-level state: _lock (threading.Lock), _latency_samples (list), _token_samples (list), _error_samples (list), _event_id_window (set) in langagent/cross_cutting/metrics_collector.py
+- [x] T009 Implement _redact_event_id() helper function for event deduplication (check event_id in _event_id_window, add with timestamp) in langagent/cross_cutting/metrics_collector.py
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
 ---
 
-## Phase 3: User Story 5 - Event Bus Integration (Priority: P1) 🎯 BLOCKING
+## Phase 3: User Story 5 - Event Bus Integration (Priority: P1) 🎯 MVP Foundation
 
-**Goal**: Subscribe to event bus and automatically record metrics when events are published
+**Goal**: Enable automatic metrics collection by subscribing to event bus - this is the architectural foundation that all other stories depend on
 
-**Independent Test**: Mock event bus, publish test events, verify metrics_collector internal state reflects events
+**Independent Test**: Mock event bus, publish test events, verify metrics_collector internal state reflects those events
 
-**Why P1 and BLOCKING**: Without event bus integration, automatic metrics collection is impossible. This unblocks US1 (automatic collection) and US4 (percentile reporting).
+### Tests for User Story 5 (TDD - Write tests FIRST, ensure they FAIL)
 
-### Tests for User Story 5 (TDD - Write FIRST, ensure FAIL)
-
-- [ ] T012 [P] [US5] Test: Write failing test `test_subscribe_to_event_bus` - verify `model_response` event → `record_token_usage()` auto-called in tests/cross_cutting/test_metrics_collector.py
-- [ ] T013 [P] [US5] Test: Write failing test `test_subscribe_to_event_bus_tool_call` - verify `tool_call` event → `record_latency()` auto-called in tests/cross_cutting/test_metrics_collector.py
-- [ ] T014 [P] [US5] Test: Write failing test `test_malformed_event_missing_latency` - event without `latency_ms` → log warning, skip, no crash in tests/cross_cutting/test_metrics_collector.py
-- [ ] T015 [P] [US5] Test: Write failing test `test_malformed_event_missing_event_id` - event without `event_id` → log warning, skip, no crash in tests/cross_cutting/test_metrics_collector.py
+- [x] T010 [P] [US5] Write test_subscribe_to_event_bus_tool_call in tests/cross_cutting/test_metrics_collector.py - verify tool_call event triggers record_latency()
+- [x] T011 [P] [US5] Write test_subscribe_to_event_bus_model_response in tests/cross_cutting/test_metrics_collector.py - verify model_response event triggers record_token_usage()
+- [x] T012 [P] [US5] Write test_subscribe_to_event_bus_eval_task_latency in tests/cross_cutting/test_metrics_collector.py - verify eval_task_started/done events calculate latency delta
+- [x] T013 [P] [US5] Write test_event_deduplication_within_window in tests/cross_cutting/test_metrics_collector.py - verify duplicate event_id within 10 minutes is discarded
+- [x] T014 [P] [US5] Write test_event_deduplication_window_expiry in tests/cross_cutting/test_metrics_collector.py - verify event_id older than 10 minutes can be reused
+- [x] T015 [P] [US5] Write test_malformed_event_missing_latency in tests/cross_cutting/test_metrics_collector.py - verify event without latency_ms logs warning and skips
+- [x] T016 [P] [US5] Write test_malformed_event_missing_event_id in tests/cross_cutting/test_metrics_collector.py - verify event without event_id logs warning and skips
 
 ### Implementation for User Story 5
 
-- [ ] T016 [P] [US5] Implement `_load_pricing_table(path: str | None) -> dict` helper function in langagent/cross_cutting/metrics_collector.py
-- [ ] T017 [P] [US5] Implement `record_latency(operation: str, ms: float) -> None` with threading lock in langagent/cross_cutting/metrics_collector.py
-- [ ] T018 [P] [US5] Implement `record_token_usage(model_name: str, prompt: int, completion: int) -> None` with threading lock in langagent/cross_cutting/metrics_collector.py
-- [ ] T019 [P] [US5] Implement `record_error(operation: str) -> None` with threading lock in langagent/cross_cutting/metrics_collector.py
-- [ ] T020 [US5] Implement event handler `_on_tool_call_event(event: dict) -> None` that calls `record_latency()` in langagent/cross_cutting/metrics_collector.py
-- [ ] T021 [US5] Implement event handler `_on_model_response_event(event: dict) -> None` that calls `record_token_usage()` in langagent/cross_cutting/metrics_collector.py
-- [ ] T022 [US5] Implement event handler `_on_eval_task_event(event: dict) -> None` that tracks eval task latency in langagent/cross_cutting/metrics_collector.py
-- [ ] T023 [US5] Implement `initialize(event_bus: EventBusProtocol, pricing_table_path: str | None = None) -> None` that subscribes to 4 event types in langagent/cross_cutting/metrics_collector.py
-- [ ] T024 [US5] Add malformed event handling: log warning via F02 Phase 1 logger when required fields missing in langagent/cross_cutting/metrics_collector.py
-- [ ] T025 [US5] Run tests T012-T015 and verify they now PASS
+- [x] T017 [US5] Implement initialize(event_bus: EventBusProtocol, pricing_table_path: str | None) function in langagent/cross_cutting/metrics_collector.py - subscribe to 4 event types (tool_call, model_response, eval_task_started, eval_task_done)
+- [x] T018 [P] [US5] Implement _handle_tool_call_event(payload: dict) handler in langagent/cross_cutting/metrics_collector.py - extract operation, latency_ms, event_id, call record_latency()
+- [x] T019 [P] [US5] Implement _handle_model_response_event(payload: dict) handler in langagent/cross_cutting/metrics_collector.py - extract model_name, tokens, event_id, call record_token_usage()
+- [x] T020 [US5] Implement _handle_eval_task_events() handlers (started/done) in langagent/cross_cutting/metrics_collector.py - calculate latency delta between start and done timestamps
+- [x] T021 [US5] Add event payload validation and malformed event handling (missing fields → log warning via cross_cutting_logger, skip event) in langagent/cross_cutting/metrics_collector.py
+- [x] T022 [US5] Add event deduplication check to all event handlers (call _redact_event_id before processing) in langagent/cross_cutting/metrics_collector.py
+- [x] T023 [US5] Implement 10-minute rolling window purge logic for _event_id_window (lazy cleanup: check and remove entries older than 10 minutes on every new event_id insertion in _redact_event_id() function) in langagent/cross_cutting/metrics_collector.py
 
 **Checkpoint**: Event bus integration complete - automatic metrics collection is now functional
 
 ---
 
-## Phase 4: User Story 1 - Automatic Metrics Collection (Priority: P1) 🎯 MVP
+## Phase 4: User Story 1 - Automatic Metrics Collection (Priority: P1) 🎯 MVP Core
 
-**Goal**: System automatically collects performance metrics (latency, token usage, error rate) in background without explicit configuration
+**Goal**: Provide record_latency(), record_token_usage(), record_error() APIs for automatic metrics collection during agent execution
 
-**Independent Test**: Run agent with tool calls and model interactions, call `snapshot()` to verify metrics collected
+**Independent Test**: Call record APIs, verify snapshot() returns correct aggregated metrics
 
-**Dependencies**: US5 (event bus integration must be complete)
+### Tests for User Story 1 (TDD - Write tests FIRST, ensure they FAIL)
 
-### Tests for User Story 1 (TDD - Write FIRST, ensure FAIL)
-
-- [ ] T026 [P] [US1] Test: Write failing test `test_record_latency_increments_sample_count` - 100 calls → `snapshot().sample_count == 100` in tests/cross_cutting/test_metrics_collector.py
-- [ ] T027 [P] [US1] Test: Write failing test `test_snapshot_token_usage_by_model` - verify per-model token aggregation in tests/cross_cutting/test_metrics_collector.py
-- [ ] T028 [P] [US1] Test: Write failing test `test_snapshot_error_rate` - 5 errors in 100 ops → error_rate == 0.05 in tests/cross_cutting/test_metrics_collector.py
-- [ ] T029 [P] [US1] Test: Write failing test `test_event_deduplication_within_window` - same event_id twice within 10 min → only first recorded in tests/cross_cutting/test_metrics_collector.py
-- [ ] T030 [P] [US1] Test: Write failing test `test_event_deduplication_window_expiry` - event_id older than 10 min can be reused in tests/cross_cutting/test_metrics_collector.py
+- [x] T024 [P] [US1] Write test_record_latency_increments_sample_count in tests/cross_cutting/test_metrics_collector.py - verify 100 calls → snapshot().sample_count == 100
+- [x] T025 [P] [US1] Write test_record_token_usage_aggregates_by_model in tests/cross_cutting/test_metrics_collector.py - verify token_usage dict aggregates per model
+- [x] T026 [P] [US1] Write test_record_error_calculates_error_rate in tests/cross_cutting/test_metrics_collector.py - verify 5 errors in 100 ops → error_rate == 0.05
+- [x] T027 [P] [US1] Write test_record_operations_thread_safe in tests/cross_cutting/test_metrics_collector.py - verify 10 threads × 1000 calls = 10000 samples (no data loss)
+- [x] T028 [P] [US1] Write test_empty_snapshot_returns_zero_sample_count in tests/cross_cutting/test_metrics_collector.py - verify no samples → sample_count == 0, error_rate == 0.0
 
 ### Implementation for User Story 1
 
-- [ ] T031 [US1] Implement event deduplication: add `_is_duplicate_event(event_id: str, timestamp: datetime) -> bool` helper in langagent/cross_cutting/metrics_collector.py
-- [ ] T032 [US1] Implement event deduplication: add `_purge_old_event_ids(current_time: datetime) -> None` helper (remove entries > 10 min old) in langagent/cross_cutting/metrics_collector.py
-- [ ] T033 [US1] Update `record_latency()` to check for duplicate event_id and skip if duplicate in langagent/cross_cutting/metrics_collector.py
-- [ ] T034 [US1] Update `record_token_usage()` to check for duplicate event_id and skip if duplicate in langagent/cross_cutting/metrics_collector.py
-- [ ] T035 [US1] Update `record_error()` to check for duplicate event_id and skip if duplicate in langagent/cross_cutting/metrics_collector.py
-- [ ] T036 [US1] Implement `_calculate_error_rate(window_start: datetime, window_end: datetime) -> float` helper in langagent/cross_cutting/metrics_collector.py
-- [ ] T037 [US1] Implement `_aggregate_token_usage(window_start: datetime, window_end: datetime) -> dict[str, int]` helper using defaultdict in langagent/cross_cutting/metrics_collector.py
-- [ ] T038 [US1] Implement `snapshot(window_start: datetime, window_end: datetime) -> MetricsSnapshot` basic version (sample_count, error_rate, token_usage, cost_usd) in langagent/cross_cutting/metrics_collector.py
-- [ ] T039 [US1] Add window validation in `snapshot()`: raise ValueError if `window_end < window_start` in langagent/cross_cutting/metrics_collector.py
-- [ ] T040 [US1] Add timestamp filtering in `snapshot()`: only include samples where `window_start <= timestamp < window_end` in langagent/cross_cutting/metrics_collector.py
-- [ ] T041 [US1] Emit `la.cross_cutting.metrics.emit` log tag when `snapshot()` is called via F02 Phase 1 logger in langagent/cross_cutting/metrics_collector.py
-- [ ] T041a [US1] Implement `flush() -> None` to clear all accumulated metrics (samples + event_id deduplication window) with threading lock in langagent/cross_cutting/metrics_collector.py (required by F09)
-- [ ] T041b [US1] Test: Write test for `flush()` - verify data clearing, thread safety, idempotency in tests/cross_cutting/test_metrics_collector.py
-- [ ] T042 [US1] Run tests T026-T030 and verify they now PASS
+- [x] T029 [P] [US1] Implement record_latency(operation: str, ms: float) function in langagent/cross_cutting/metrics_collector.py - append LatencySample to _latency_samples with thread lock
+- [x] T030 [P] [US1] Implement record_token_usage(model_name: str, prompt: int, completion: int) function in langagent/cross_cutting/metrics_collector.py - append TokenUsageSample to _token_samples with thread lock
+- [x] T031 [P] [US1] Implement record_error(operation: str) function in langagent/cross_cutting/metrics_collector.py - append ErrorSample to _error_samples with thread lock
+- [x] T032 [US1] Implement basic snapshot(window_start: datetime, window_end: datetime) function in langagent/cross_cutting/metrics_collector.py - return MetricsSnapshot with sample_count, error_rate, token_usage aggregation
+- [x] T033 [US1] Add window validation (window_end < window_start → raise ValueError) in snapshot() function in langagent/cross_cutting/metrics_collector.py
+- [x] T034 [US1] Add thread lock acquisition in snapshot() function in langagent/cross_cutting/metrics_collector.py
 
-**Checkpoint**: Automatic metrics collection is fully functional - can collect latency, tokens, errors, and deduplicate events
+**Checkpoint**: Core metrics collection APIs functional - can record latency, tokens, errors and generate basic snapshots
 
 ---
 
 ## Phase 5: User Story 4 - Percentile Latency Reporting (Priority: P1)
 
-**Goal**: Provide p50/p95/p99 latency metrics to understand typical and worst-case performance
+**Goal**: Calculate and report p50/p95/p99 latency metrics for performance analysis
 
-**Independent Test**: Record 100 latency samples with known distribution, verify p50/p95/p99 match expected values
+**Independent Test**: Record 100 uniform latency samples, verify percentiles match expected values (p50 ≈ 60ms, p95 ≈ 105ms, p99 ≈ 109ms)
 
-**Dependencies**: US1 (basic snapshot() must be complete)
+### Tests for User Story 4 (TDD - Write tests FIRST, ensure they FAIL)
 
-### Tests for User Story 4 (TDD - Write FIRST, ensure FAIL)
-
-- [ ] T043 [P] [US4] Test: Write failing test `test_snapshot_p50_latency` - verify p50 ≈ 60ms for uniform 10-110ms distribution in tests/cross_cutting/test_metrics_collector.py
-- [ ] T044 [P] [US4] Test: Write failing test `test_snapshot_p95_latency` - verify p95 ≈ 105ms for same distribution in tests/cross_cutting/test_metrics_collector.py
-- [ ] T045 [P] [US4] Test: Write failing test `test_snapshot_p99_latency` - verify p99 ≈ 109ms for same distribution in tests/cross_cutting/test_metrics_collector.py
-- [ ] T046 [P] [US4] Test: Write failing test `test_empty_snapshot_returns_none_percentiles` - no samples → p50/p95/p99 all None in tests/cross_cutting/test_metrics_collector.py
+- [x] T035 [P] [US4] Write test_snapshot_p50_latency in tests/cross_cutting/test_metrics_collector.py - verify p50 ≈ 60ms for uniform 10-110ms distribution
+- [x] T036 [P] [US4] Write test_snapshot_p95_latency in tests/cross_cutting/test_metrics_collector.py - verify p95 ≈ 105ms for same distribution
+- [x] T037 [P] [US4] Write test_snapshot_p99_latency in tests/cross_cutting/test_metrics_collector.py - verify p99 ≈ 110ms for same distribution
+- [x] T038 [P] [US4] Write test_empty_snapshot_returns_none_percentiles in tests/cross_cutting/test_metrics_collector.py - verify no samples → p50/p95/p99 all return None
+- [x] T039 [P] [US4] Write test_percentile_accuracy_within_one_percent in tests/cross_cutting/test_metrics_collector.py - verify percentile calculations match NumPy within 1% error for sample size > 100
 
 ### Implementation for User Story 4
 
-- [ ] T047 [US4] Implement `_calculate_percentiles(samples: list[float]) -> tuple[Optional[float], Optional[float], Optional[float]]` using `statistics.quantiles()` in langagent/cross_cutting/metrics_collector.py
-- [ ] T048 [US4] Handle empty sample case in `_calculate_percentiles()`: return (None, None, None) when samples list is empty in langagent/cross_cutting/metrics_collector.py
-- [ ] T049 [US4] Update `snapshot()` to calculate and include p50/p95/p99 latency from filtered samples in langagent/cross_cutting/metrics_collector.py
-- [ ] T050 [US4] Run tests T043-T046 and verify they now PASS
+- [x] T040 [US4] Implement _calculate_percentiles(latencies: list[float]) helper function in langagent/cross_cutting/metrics_collector.py - use statistics.quantiles() with method='exclusive' for NumPy compatibility
+- [x] T041 [US4] Handle empty latencies case in _calculate_percentiles() in langagent/cross_cutting/metrics_collector.py - return (None, None, None) when list is empty
+- [x] T042 [US4] Update snapshot() to call _calculate_percentiles() and populate p50_latency_ms, p95_latency_ms, p99_latency_ms fields in langagent/cross_cutting/metrics_collector.py
+- [x] T043 [US4] Filter latency samples by timestamp window in snapshot() (only include samples where window_start <= timestamp < window_end) in langagent/cross_cutting/metrics_collector.py
 
-**Checkpoint**: Percentile latency reporting is complete - US1 + US4 combined provide full basic observability
+**Checkpoint**: Percentile latency reporting functional - can analyze typical and worst-case performance
 
 ---
 
 ## Phase 6: User Story 2 - Time-Window Metrics Snapshots (Priority: P2)
 
-**Goal**: Request metrics snapshots for specific time windows to understand performance trends within a single execution
+**Goal**: Enable fine-grained performance analysis by requesting metrics for specific time windows
 
-**Independent Test**: Record metrics over 60s, request snapshots for [0:30] and [30:60] windows, verify only respective events included
+**Independent Test**: Record metrics over 60 seconds, request snapshots for [0:30] and [30:60], verify non-overlapping samples
 
-**Dependencies**: US1 and US4 (snapshot() with window filtering must be complete)
+### Tests for User Story 2 (TDD - Write tests FIRST, ensure they FAIL)
 
-### Tests for User Story 2 (TDD - Write FIRST, ensure FAIL)
-
-- [ ] T051 [P] [US2] Test: Write failing test `test_snapshot_window_filter` - verify samples outside `[window_start, window_end]` excluded in tests/cross_cutting/test_metrics_collector.py
-- [ ] T052 [P] [US2] Test: Write failing test for non-overlapping window snapshots - metrics over 60s split into [0:30] and [30:60] in tests/cross_cutting/test_metrics_collector.py
+- [x] T044 [P] [US2] Write test_snapshot_window_filter in tests/cross_cutting/test_metrics_collector.py - verify samples outside [window_start, window_end] excluded
+- [x] T045 [P] [US2] Write test_snapshot_non_overlapping_windows in tests/cross_cutting/test_metrics_collector.py - verify [0:30] and [30:60] windows contain distinct samples
+- [x] T046 [P] [US2] Write test_snapshot_concurrent_calls_thread_safe in tests/cross_cutting/test_metrics_collector.py - verify concurrent snapshot() calls return consistent views
 
 ### Implementation for User Story 2
 
-- [ ] T053 [US2] Verify timestamp filtering logic in `snapshot()` correctly handles edge cases (window boundaries, timezone-aware datetimes) in langagent/cross_cutting/metrics_collector.py
-- [ ] T054 [US2] Add docstring examples for `snapshot()` showing time-window usage patterns in langagent/cross_cutting/metrics_collector.py
-- [ ] T055 [US2] Run tests T051-T052 and verify they now PASS
+- [x] T047 [US2] Implement timestamp filtering for token samples in snapshot() (filter _token_samples by window) in langagent/cross_cutting/metrics_collector.py
+- [x] T048 [US2] Implement timestamp filtering for error samples in snapshot() (filter _error_samples by window) in langagent/cross_cutting/metrics_collector.py
+- [x] T049 [US2] Add timestamp boundary handling (inclusive window_start, exclusive window_end) in snapshot() filtering logic in langagent/cross_cutting/metrics_collector.py
 
-**Checkpoint**: Time-window snapshots are complete - enables fine-grained performance analysis
+**Checkpoint**: Time-window filtering complete - can analyze specific phases of agent execution
 
 ---
 
 ## Phase 7: User Story 3 - Cost Estimation from Token Usage (Priority: P2)
 
-**Goal**: Automatically calculate `cost_usd` based on token usage and model pricing
+**Goal**: Automatically calculate cost_usd based on token usage and model pricing table
 
-**Independent Test**: Provide mock pricing table, record token usage for known models, verify `cost_usd` matches expected calculation
+**Independent Test**: Provide mock pricing table, record token usage, verify cost_usd calculation matches expected formula
 
-**Dependencies**: US1 (token_usage aggregation must be complete)
+### Tests for User Story 3 (TDD - Write tests FIRST, ensure they FAIL)
 
-### Tests for User Story 3 (TDD - Write FIRST, ensure FAIL)
-
-- [ ] T056 [P] [US3] Test: Write failing test `test_snapshot_cost_usd` - verify cost calculation with mock pricing table in tests/cross_cutting/test_metrics_collector.py
-- [ ] T057 [P] [US3] Test: Write failing test `test_pricing_table_from_json_file` - load pricing from JSON file at specified path in tests/cross_cutting/test_metrics_collector.py
-- [ ] T058 [P] [US3] Test: Write failing test `test_pricing_table_default_fallback` - when path not specified, use built-in default prices in tests/cross_cutting/test_metrics_collector.py
-- [ ] T059 [P] [US3] Test: Write failing test for unknown model - logs warning, contributes 0 to cost in tests/cross_cutting/test_metrics_collector.py
+- [x] T050 [P] [US3] Write test_snapshot_cost_usd in tests/cross_cutting/test_metrics_collector.py - verify cost calculation with mock pricing table (prompt_tokens × prompt_price + completion_tokens × completion_price) / 1000
+- [x] T051 [P] [US3] Write test_pricing_table_from_json_file in tests/cross_cutting/test_metrics_collector.py - verify loading from JSON file at specified path
+- [x] T052 [P] [US3] Write test_pricing_table_default_fallback in tests/cross_cutting/test_metrics_collector.py - verify built-in default prices when path not specified
+- [x] T053 [P] [US3] Write test_pricing_table_unknown_model in tests/cross_cutting/test_metrics_collector.py - verify unknown model logs warning and contributes 0 to cost
+- [x] T054 [P] [US3] Write test_pricing_table_env_var_override in tests/cross_cutting/test_metrics_collector.py - verify LANGAGENT_PRICING_TABLE_PATH environment variable overrides default
 
 ### Implementation for User Story 3
 
-- [ ] T060 [US3] Implement `_calculate_cost_usd(token_usage: dict[str, int], pricing_table: dict) -> float` helper in langagent/cross_cutting/metrics_collector.py
-- [ ] T061 [US3] Handle unknown models in `_calculate_cost_usd()`: log warning via F02 Phase 1 logger, contribute 0.0 to cost in langagent/cross_cutting/metrics_collector.py
-- [ ] T062 [US3] Update `_load_pricing_table()` to support environment variable `LANGAGENT_PRICING_TABLE_PATH` override in langagent/cross_cutting/metrics_collector.py
-- [ ] T063 [US3] Update `_load_pricing_table()` to fall back to built-in default prices if file not found in langagent/cross_cutting/metrics_collector.py
-- [ ] T064 [US3] Update `snapshot()` to calculate cost_usd using pricing table loaded during `initialize()` in langagent/cross_cutting/metrics_collector.py
-- [ ] T065 [US3] Run tests T056-T059 and verify they now PASS
+- [x] T055 [US3] Implement _load_pricing_table(path: str | None) function in langagent/cross_cutting/metrics_collector.py - load JSON, check env var LANGAGENT_PRICING_TABLE_PATH, fallback to built-in defaults
+- [x] T056 [US3] Add built-in default pricing dict for gpt-4o, gpt-4o-mini, qwen3-8b in langagent/cross_cutting/metrics_collector.py
+- [x] T057 [US3] Update initialize() to call _load_pricing_table() and store result in module-level _pricing_table variable in langagent/cross_cutting/metrics_collector.py
+- [x] T058 [US3] Implement _calculate_cost(token_usage: dict[str, int]) function in langagent/cross_cutting/metrics_collector.py - multiply tokens by pricing, sum across models, handle unknown models (log warning, contribute 0)
+- [x] T059 [US3] Update snapshot() to call _calculate_cost() and populate cost_usd field in langagent/cross_cutting/metrics_collector.py
 
-**Checkpoint**: Cost estimation is complete - full financial impact visibility for agent runs
+**Checkpoint**: Cost estimation functional - can understand financial impact of agent runs
 
 ---
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-**Purpose**: Improvements, cleanup, and final validation
+**Purpose**: Final improvements and missing pieces
 
-- [ ] T066 [P] Test: Write thread safety test `test_emit_thread_safe` - 10 threads concurrently calling `record_*` for 1 minute, no data corruption, verify throughput >= 1000 events/second (SC-007) in tests/cross_cutting/test_metrics_collector.py
-- [ ] T067 [P] Test: Write thread safety test for `snapshot()` concurrent calls - verify consistent view with locks in tests/cross_cutting/test_metrics_collector.py
-- [ ] T068 [P] Test: Write thread safety test for `flush()` during event processing - verify no data loss in tests/cross_cutting/test_metrics_collector.py
-- [ ] T069 [P] Add comprehensive docstrings to all public functions (initialize, record_*, snapshot, flush) in langagent/cross_cutting/metrics_collector.py
-- [ ] T070 [P] Add type hints to all functions, ensure `mypy --strict` passes with no `type: ignore` comments in langagent/cross_cutting/metrics_collector.py
-- [ ] T071 Verify all 18+ test cases from spec.md Test Coverage Requirements section pass in tests/cross_cutting/test_metrics_collector.py
-- [ ] T072 Run `mypy --strict langagent/cross_cutting/metrics_collector.py` and fix any type errors
-- [ ] T073 Run `pytest tests/cross_cutting/test_metrics_collector.py -v` and verify all tests pass
-- [ ] T074 [P] Performance validation: Verify `record_latency()` completes in < 1ms (fire-and-forget)
-- [ ] T075 [P] Performance validation: Verify `snapshot()` with 10K samples completes in < 100ms
-- [ ] T076 Code review checklist: Verify no hard-coded paths (宪法第 XIII 条), pricing table path configurable
-- [ ] T077 Code review checklist: Verify thread safety - all shared state protected by locks
-- [ ] T078 Code review checklist: Verify no blocking I/O in `record_*` methods
-- [ ] T079 Code review checklist: Verify MetricsSnapshot is frozen dataclass (immutable)
-- [ ] T080 Integration validation: Create mock event bus, publish 100 events, verify all metrics collected correctly
-- [ ] T081 [P] Test: Long-running memory leak test - Run metrics collection for 24 hours with 1M samples, verify memory growth < 2× baseline (SC-008) in tests/cross_cutting/test_metrics_collector.py
+- [x] T060 [P] Implement flush() function in langagent/cross_cutting/metrics_collector.py - clear _latency_samples, _token_samples, _error_samples, _event_id_window with thread lock
+- [x] T061 [P] Write test_flush_clears_all_data in tests/cross_cutting/test_metrics_collector.py - verify flush() clears samples and deduplication window
+- [x] T062 [P] Write test_flush_thread_safe in tests/cross_cutting/test_metrics_collector.py - verify concurrent flush() during event processing doesn't lose data
+- [x] T063 [P] Add log emission in snapshot() function (emit "la.cross_cutting.metrics.emit" tag via cross_cutting_logger) in langagent/cross_cutting/metrics_collector.py
+- [x] T064 [P] Verify MetricsSnapshot immutability (frozen=True) - write test_snapshot_returns_frozen_dataclass in tests/cross_cutting/test_metrics_collector.py
+- [x] T065 [P] Add type hints for mypy --strict compliance (Optional[float] for percentiles) in langagent/cross_cutting/metrics_collector.py
+- [x] T066 Run mypy --strict on langagent/cross_cutting/metrics_collector.py and fix any type errors
+- [x] T067 Run pytest tests/cross_cutting/test_metrics_collector.py and verify all 18+ tests pass
+- [x] T068 Verify performance goals: record_latency < 1ms, snapshot < 100ms for 10K samples (add performance benchmark tests if needed)
+- [x] T068a [P] Write test_initialize_subscribes_within_100ms in tests/cross_cutting/test_metrics_collector.py - verify initialize() completes within 100ms (SC-001 performance benchmark)
 
 ---
 
@@ -226,123 +203,112 @@
 
 - **Setup (Phase 1)**: No dependencies - can start immediately
 - **Foundational (Phase 2)**: Depends on Setup completion - BLOCKS all user stories
-- **User Story 5 (Phase 3)**: Depends on Foundational - BLOCKS US1 and US4 (event bus integration required for automatic collection)
-- **User Story 1 (Phase 4)**: Depends on US5 - Can proceed once event bus integration complete
-- **User Story 4 (Phase 5)**: Depends on US1 - Can proceed once basic snapshot() complete
-- **User Story 2 (Phase 6)**: Depends on US1 and US4 - Requires snapshot() with window filtering and percentiles
-- **User Story 3 (Phase 7)**: Depends on US1 - Can proceed in parallel with US4 once token_usage aggregation complete
+- **User Stories (Phase 3-7)**: All depend on Foundational phase completion
+  - US5 (Event Bus Integration) should complete first - it's the foundation for automatic collection
+  - US1 (Automatic Metrics Collection) depends on US5 being functional
+  - US4 (Percentile Latency) extends US1 - should complete after US1
+  - US2 (Time-Window Snapshots) extends US1 - can run in parallel with US4
+  - US3 (Cost Estimation) extends US1 - can run in parallel with US2 and US4
 - **Polish (Phase 8)**: Depends on all user stories being complete
 
 ### User Story Dependencies
 
-- **User Story 5 (P1)**: No dependencies on other stories (depends only on Foundational) - BLOCKING for US1/US4
-- **User Story 1 (P1)**: Depends on US5 (event bus integration) - MVP core functionality
-- **User Story 4 (P1)**: Depends on US1 (basic snapshot()) - Completes MVP observability
-- **User Story 2 (P2)**: Depends on US1 + US4 (snapshot() with percentiles) - Enhancement
-- **User Story 3 (P2)**: Depends on US1 (token_usage aggregation) - Can run parallel with US2
+- **User Story 5 (P1)**: Foundation - MUST complete first
+- **User Story 1 (P1)**: Depends on US5 - core metrics APIs
+- **User Story 4 (P1)**: Depends on US1 - extends with percentiles
+- **User Story 2 (P2)**: Depends on US1 - can run in parallel with US4 and US3
+- **User Story 3 (P2)**: Depends on US1 - can run in parallel with US2 and US4
 
-### Critical Path (MVP)
+### Within Each User Story
 
-1. Setup (Phase 1) → 4 tasks
-2. Foundational (Phase 2) → 7 tasks
-3. US5: Event Bus Integration (Phase 3) → 14 tasks
-4. US1: Automatic Collection (Phase 4) → 19 tasks (includes flush() API for F09)
-5. US4: Percentile Reporting (Phase 5) → 8 tasks
-
-**MVP Complete**: 52 tasks total (Phases 1-5)
+- Tests MUST be written and FAIL before implementation (TDD)
+- Helper functions before main functions
+- Core implementation before edge cases
+- Story complete before moving to next priority
 
 ### Parallel Opportunities
 
-- **Setup**: T003-T004 can run in parallel (different fixture files)
-- **Foundational**: T005-T007 (dataclass definitions), T009 (test) can all run in parallel
-- **US5 Tests**: T012-T015 can all run in parallel (different test functions)
-- **US5 Implementation**: T016-T019 can run in parallel (different functions, no dependencies)
-- **US1 Tests**: T026-T030 can all run in parallel
-- **US4 Tests**: T043-T046 can all run in parallel
-- **US2 Tests**: T051-T052 can run in parallel
-- **US3 Tests**: T056-T059 can all run in parallel
-- **Polish**: T066-T072 can mostly run in parallel (different test files/functions)
-
-Once US5 is complete, US1 and US3 can be worked on in parallel by different developers (US1 focuses on deduplication/error_rate, US3 focuses on cost calculation).
+- All Setup tasks marked [P] can run in parallel (T001, T002, T003)
+- All Foundational dataclass definitions marked [P] can run in parallel (T005, T006, T007)
+- All tests for a user story marked [P] can run in parallel
+- Once US1 completes, US2/US3/US4 can start in parallel (if team capacity allows)
+- All Polish tasks marked [P] can run in parallel
 
 ---
 
-## Parallel Example: User Story 5 (Event Bus Integration)
+## Parallel Example: User Story 5 Tests
 
 ```bash
 # Launch all tests for User Story 5 together:
-Task T012: "Test: test_subscribe_to_event_bus in tests/cross_cutting/test_metrics_collector.py"
-Task T013: "Test: test_subscribe_to_event_bus_tool_call in tests/cross_cutting/test_metrics_collector.py"
-Task T014: "Test: test_malformed_event_missing_latency in tests/cross_cutting/test_metrics_collector.py"
-Task T015: "Test: test_malformed_event_missing_event_id in tests/cross_cutting/test_metrics_collector.py"
+Task: "Write test_subscribe_to_event_bus_tool_call in tests/cross_cutting/test_metrics_collector.py"
+Task: "Write test_subscribe_to_event_bus_model_response in tests/cross_cutting/test_metrics_collector.py"
+Task: "Write test_subscribe_to_event_bus_eval_task_latency in tests/cross_cutting/test_metrics_collector.py"
+Task: "Write test_event_deduplication_within_window in tests/cross_cutting/test_metrics_collector.py"
+Task: "Write test_event_deduplication_window_expiry in tests/cross_cutting/test_metrics_collector.py"
+Task: "Write test_malformed_event_missing_latency in tests/cross_cutting/test_metrics_collector.py"
+Task: "Write test_malformed_event_missing_event_id in tests/cross_cutting/test_metrics_collector.py"
+```
 
-# Launch all core record_* functions together:
-Task T016: "_load_pricing_table() in langagent/cross_cutting/metrics_collector.py"
-Task T017: "record_latency() in langagent/cross_cutting/metrics_collector.py"
-Task T018: "record_token_usage() in langagent/cross_cutting/metrics_collector.py"
-Task T019: "record_error() in langagent/cross_cutting/metrics_collector.py"
+---
+
+## Parallel Example: User Story 1 Tests
+
+```bash
+# Launch all tests for User Story 1 together:
+Task: "Write test_record_latency_increments_sample_count in tests/cross_cutting/test_metrics_collector.py"
+Task: "Write test_record_token_usage_aggregates_by_model in tests/cross_cutting/test_metrics_collector.py"
+Task: "Write test_record_error_calculates_error_rate in tests/cross_cutting/test_metrics_collector.py"
+Task: "Write test_record_operations_thread_safe in tests/cross_cutting/test_metrics_collector.py"
+Task: "Write test_empty_snapshot_returns_zero_sample_count in tests/cross_cutting/test_metrics_collector.py"
 ```
 
 ---
 
 ## Implementation Strategy
 
-### MVP First (User Stories 5, 1, 4 Only)
+### MVP First (User Stories 5 + 1 Only)
 
-1. Complete Phase 1: Setup → 4 tasks
-2. Complete Phase 2: Foundational (CRITICAL - blocks all stories) → 7 tasks
-3. Complete Phase 3: User Story 5 (Event Bus Integration) → 14 tasks
-4. Complete Phase 4: User Story 1 (Automatic Collection + flush() API) → 19 tasks
-5. Complete Phase 5: User Story 4 (Percentile Reporting) → 8 tasks
-6. **STOP and VALIDATE**: Test MVP independently (52 tasks total)
-7. Deploy/demo if ready
-
-**MVP delivers**: Automatic metrics collection via event bus + deduplication + percentile latency + basic error_rate/token_usage/cost_usd + flush() API for F09
+1. Complete Phase 1: Setup
+2. Complete Phase 2: Foundational (CRITICAL - blocks all stories)
+3. Complete Phase 3: User Story 5 (Event Bus Integration - foundation)
+4. Complete Phase 4: User Story 1 (Automatic Metrics Collection - core)
+5. **STOP and VALIDATE**: Test US1 + US5 independently with mock event bus
+6. Deploy/demo if ready
 
 ### Incremental Delivery
 
-1. Complete Setup + Foundational → Foundation ready (11 tasks)
-2. Add US5 → Event bus integration working (25 tasks cumulative)
-3. Add US1 → Automatic collection with deduplication + flush() API (44 tasks cumulative)
-4. Add US4 → Percentile reporting (52 tasks cumulative) → **MVP COMPLETE**
-5. Add US2 → Time-window analysis (57 tasks cumulative)
-6. Add US3 → Cost estimation (67 tasks cumulative)
-7. Polish → Production ready (83 tasks cumulative)
+1. Complete Setup + Foundational → Foundation ready
+2. Add User Story 5 → Event bus integration functional
+3. Add User Story 1 → Core metrics collection functional (MVP!)
+4. Add User Story 4 → Percentile latency reporting added
+5. Add User Story 2 → Time-window filtering added
+6. Add User Story 3 → Cost estimation added
+7. Each story adds value without breaking previous stories
 
 ### Parallel Team Strategy
 
-With 2 developers after Phase 3 (US5) is complete:
+With multiple developers:
 
-1. Team completes Setup + Foundational + US5 together → Event bus ready
-2. Once US5 is done:
-   - **Developer A**: US1 (Automatic Collection) + US4 (Percentile Reporting)
-   - **Developer B**: US3 (Cost Estimation)
-3. Then team together: US2 (Time-Window Snapshots) + Polish
+1. Team completes Setup + Foundational together
+2. Complete US5 together (foundation for all)
+3. Complete US1 together (core APIs)
+4. Once US1 is done:
+   - Developer A: User Story 4 (Percentile Latency)
+   - Developer B: User Story 2 (Time-Window Snapshots)
+   - Developer C: User Story 3 (Cost Estimation)
+5. Stories complete and integrate independently
 
 ---
 
 ## Notes
 
-- [P] tasks = different files or functions, no dependencies
+- [P] tasks = different files or different functions, no dependencies
 - [Story] label maps task to specific user story for traceability
-- All tests follow TDD Red-Green-Refactor: Write failing test → Implement → Verify pass
-- Thread safety is critical: All shared state (`_*_samples`, `_event_id_window`) protected by `_lock`
-- Event deduplication window (10 min) must be maintained throughout all phases
+- Each user story should be independently completable and testable
+- Verify tests fail before implementing (TDD Red-Green-Refactor)
 - Commit after each task or logical group
 - Stop at any checkpoint to validate story independently
-- Avoid: vague tasks, same file conflicts, cross-story dependencies that break independence
-
----
-
-## Total Task Count: 83 tasks
-
-- **Setup (Phase 1)**: 4 tasks
-- **Foundational (Phase 2)**: 7 tasks
-- **User Story 5 - Event Bus Integration (Phase 3)**: 14 tasks
-- **User Story 1 - Automatic Collection (Phase 4)**: 19 tasks (includes flush() implementation)
-- **User Story 4 - Percentile Reporting (Phase 5)**: 8 tasks
-- **User Story 2 - Time-Window Snapshots (Phase 6)**: 5 tasks
-- **User Story 3 - Cost Estimation (Phase 7)**: 10 tasks
-- **Polish & Cross-Cutting (Phase 8)**: 16 tasks
-
-**MVP Scope**: Phases 1-5 (52 tasks) deliver core automatic metrics collection with percentile latency reporting and flush() API
+- Thread safety is critical - use _lock for all state mutations
+- Event deduplication prevents double-counting retried operations
+- Percentile calculations must match NumPy within 1% for credibility
+- Cost estimation handles unknown models gracefully (log warning, contribute 0)

@@ -43,7 +43,7 @@ related_docs:
 
 ## Schema 总目录
 
-> 23 个一级章节（合并章节承载 2 个类型，合计 27 个类型，v0.4.0 M-4 方案 C 修复后新增 `state_reducers`，review.md v0.5.0 修复（评审 v0.1.0 §二.A.1）新增 `eval_run_result`，**review.md v2.1.0 P1-4 修复新增 `guardrail_policy`**）；表末必须有合计行 `合计 — — — — 23 / 27`（review.md v0.2.0 S-2 修复：新增 RuntimeConfigSnapshot；v0.4.0 新增 StateReducers；v0.5.0 新增 EvalRunResult；v2.1.0 新增 GuardrailPolicy / GuardrailDecision）。
+> 23 个一级章节（合并章节承载 2-3 个类型，合计 28 个类型，v0.4.0 M-4 方案 C 修复后新增 `state_reducers`，review.md v0.5.0 修复（评审 v0.1.0 §二.A.1）新增 `eval_run_result`，review.md v2.1.0 P1-4 修复新增 `guardrail_policy`，三级模式设计将类型数 27 调整为 28：ToolSpec 移除 side_effects 字段（ToolSideEffect 枚举移除），GuardrailPolicy 增加 GuardrailMode Literal 类型）；表末必须有合计行 `合计 — — — — 23 / 28`。
 
 | schema_id | python_kind | schema_version | disk_format | 承载类型数 |
 |---|---|---|---|---|
@@ -53,7 +53,7 @@ related_docs:
 | `runtime_config_snapshot` | `Pydantic BaseModel` | `v0.1.0` | `JSON` | 1 |
 | `loaded_agent` | `dataclass(frozen=True)` | `v0.1.0` | `YAML` | 1 |
 | `skill_spec_frontmatter` | `dataclass(frozen=True)` + `Pydantic BaseModel` | `v0.1.0` | `YAML` + `Markdown` | 2 |
-| `tool_spec_side_effect` | `Pydantic BaseModel` + `Enum` | `v0.1.0` | `JSON` | 2 |
+| `tool_spec` | `Pydantic BaseModel` | `v0.2.0` | `JSON` | 1 |
 | `middleware_spec` | `Pydantic BaseModel` | `v0.1.0` | `YAML` | 1 |
 | `channel_spec` | `Pydantic BaseModel` | `v0.1.0` | `YAML` | 1 |
 | `channel_context` | `TypedDict` | `v0.1.0` | `JSON` | 1 |
@@ -69,8 +69,8 @@ related_docs:
 | `doctor_report` | `Pydantic BaseModel` | `v0.2.0` | `JSON` | 1 |
 | `eval_run_result` | `dataclass(frozen=True)` | `v0.1.0` | —（不写盘） | 1 |
 | `eval_report` | `Pydantic BaseModel` | `v0.1.0` | `JSON` | 1 |
-| `guardrail_policy` | `Pydantic BaseModel` × 2 | `v0.1.0` | `JSON` | 2 |
-| **合计** | — | — | — | **23 / 27** |
+| `guardrail_policy` | `Literal` + `Pydantic BaseModel` × 2 | `v0.2.0` | `JSON` | 3 |
+| **合计** | — | — | — | **23 / 28** |
 
 ---
 
@@ -380,7 +380,7 @@ class LoadedAgent:
 
 | field | langchain_native | langgraph_native | notes |
 |---|---|---|---|
-| `tool_ids` | N/A | N/A | 引用 `ToolSpec` 的 `tool_id`（见 `tool_spec_side_effect`） |
+| `tool_ids` | N/A | N/A | 引用 `ToolSpec` 的 `tool_id`（见 `tool_spec`） |
 | `skill_names` | N/A | N/A | 引用 `SkillSpec` 的 `skill_name`（见 `skill_spec_frontmatter`） |
 
 ### reducer 与不可变约束
@@ -460,14 +460,13 @@ class SkillFrontmatter(BaseModel, frozen=True):
 
 ---
 
-## ToolSpec / ToolSideEffect {#schema-tool-spec-side-effect}
+## ToolSpec {#schema-tool-spec}
 
-> 1 级章节 6 / 22。合并章节，承载 2 个类型（ToolSpec + ToolSideEffect）；FR-033 / Q9 澄清；下挂 6 个二级小节。
+> 1 级章节 6 / 22。工具规范；FR-033 / Q9 澄清；下挂 4 个二级小节。
 
-### Python 类型签名（共用）
+### Python 类型签名
 
 ```python
-# ToolSpec
 from pydantic import BaseModel
 from typing import Any
 
@@ -479,28 +478,14 @@ class ToolSpec(BaseModel, frozen=True):
     tool_name:         str                    # * tool 显示名（用于模型 prompt）
     description:       str                    # * 单行描述
     args_schema:       dict[str, Any]         # * Pydantic schema（JSON Schema 形式）
-    side_effects:      list['ToolSideEffect'] # * 工具副作用标注
     enabled:           bool = True            # - 是否启用
-    requires_approval: bool = False           # - 是否需要 human-in-the-loop 审批
-
-# ToolSideEffect
-from enum import Enum
-
-class ToolSideEffect(str, Enum):
-    """工具副作用标注；middleware 据此决定是否 interrupt。"""
-    NONE           = "none"           # 纯计算 / 查询
-    READ_FILE      = "read_file"      # 读文件
-    WRITE_FILE     = "write_file"     # 写文件
-    EXEC_SHELL     = "exec_shell"     # 执行 shell 命令
-    NETWORK_CALL   = "network_call"   # 调外部 API
-    SEND_MESSAGE   = "send_message"   # 发送消息（IM 通道）
-    EXTERNAL_STATE = "external_state" # 改外部状态（数据库 / 文件系统 等）
+    requires_approval: bool = False           # - 是否需要 human-in-the-loop 审批（工具级覆盖全局 guardrail 模式）
 ```
 
-### 磁盘格式与 schema_version（共用）
+### 磁盘格式与 schema_version
 
-- `disk_format`: `JSON`（`ToolSpec` 序列化为 JSON；`ToolSideEffect` 是字符串 enum，可嵌入 JSON）
-- `schema_version`: `v0.1.0`
+- `disk_format`: `JSON`（`ToolSpec` 序列化为 JSON）
+- `schema_version`: `v0.2.0`（v0.2.0：移除 `side_effects` 字段，工具不再需要显式标注副作用）
 
 ### ToolSpec 与 LangChain / LangGraph 原生类型映射
 
@@ -509,22 +494,11 @@ class ToolSideEffect(str, Enum):
 | `tool_id` | `BaseTool.name` | N/A | 与 LangChain `BaseTool` 子类的 `name` 属性对齐 |
 | `description` | `BaseTool.description` | N/A | 与 `BaseTool.description` 对齐 |
 | `args_schema` | `BaseTool.args_schema` | N/A | Pydantic schema；与 `BaseTool.args_schema` 对齐 |
-| `side_effects` | N/A | N/A | 自定义枚举；用于 guardrail middleware |
-| `requires_approval` | N/A | `interrupt` | 当 `True` 时，工具调用前触发 `interrupt()` |
+| `requires_approval` | N/A | `interrupt` | 当 `True` 时，工具调用前触发 `interrupt()`；覆盖全局 guardrail 模式 |
 
 ### ToolSpec reducer 与不可变约束
 
 - 不可变（`frozen=True`）；加载完成后禁止修改。
-
-### ToolSideEffect 与 LangChain / LangGraph 原生类型映射
-
-| field | langchain_native | langgraph_native | notes |
-|---|---|---|---|
-| （枚举值） | N/A | N/A | 自定义枚举；非 LangChain / LangGraph 原生 |
-
-### ToolSideEffect reducer 与不可变约束
-
-- 不可变（`Enum`）；运行时禁止扩展新成员（必须重新发布）。
 
 ---
 
@@ -1059,7 +1033,7 @@ class AuditEntry(BaseModel, frozen=True):
 | field | langchain_native | langgraph_native | notes |
 |---|---|---|---|
 | `actor` | N/A | N/A | 自定义；非 LangChain / LangGraph 原生 |
-| `action` | N/A | N/A | 自定义；可引用 `ToolSideEffect` 枚举值 |
+| `action` | N/A | N/A | 自定义；描述触发审计的操作（如工具调用、模型调用、护栏拦截等） |
 
 ### reducer 与不可变约束
 
@@ -1163,57 +1137,59 @@ class EvalRunResult:
 
 ## GuardrailPolicy / GuardrailDecision {#schema-guardrail-policy}
 
-> 1 级章节 23 / 23。合并章节，承载 2 个类型（`GuardrailPolicy` + `GuardrailDecision`）；**review.md v2.1.0 P1-4 修复新增**：F09 §3.2 提升为顶层 schema，与宪法第 X 条 1 款"不外发数据"+ 第 IV 条 4 款"本地模型必须可作为默认"对齐——内网 vLLM 默认 allow（满足本地默认需求），公网 endpoint 默认 interrupt（满足不外发数据）。MDA 无对应 schema（`managed-deep-agents-tools.md:81` 用 `interrupt_on={"tool_name": True}` 简单 dict，且 MDA 默认托管运行无内网 / 公网区分需求）。
-> **Owning Feature**: F09（v1 完整实现；RuntimeConfig.guardrail_policy 字段由 F03 读 env LANGAGENT_GUARDRAIL_* 注入）
-> **Python 文件**: `langagent/cross_cutting/types.py`（原 §3.2 已规划位置）
+> 1 级章节 23 / 23。合并章节，承载 3 个类型（`GuardrailMode` + `GuardrailPolicy` + `GuardrailDecision`）；三级模式设计（all / smart / strict）与宪法第 X 条 1 款"不外发数据"+ 第 IV 条 4 款"本地模型必须可作为默认"对齐——内网 vLLM 默认 allow（满足本地默认需求），公网 endpoint 在 smart/all 模式下由模型判断或人工审批（满足不外发数据）。MDA 无对应 schema（`managed-deep-agents-tools.md:81` 用 `interrupt_on={"tool_name": True}` 简单 dict，且 MDA 默认托管运行无内网 / 公网区分需求）。
+> **Owning Feature**: F04（v1 完整实现；RuntimeConfig.guardrail_policy 字段由 F07 读 env LANGAGENT_GUARDRAIL_* 注入）
+> **Python 文件**: `langagent/cross_cutting/types.py`
 
 ### Python 类型签名（共用）
 
 ```python
 from pydantic import BaseModel
-from typing import Any
-from langagent.protocol.tool_schemas import ToolSideEffect  # F04 拥有
+from typing import Any, Literal
+
+# GuardrailMode
+GuardrailMode = Literal["all", "smart", "strict"]
 
 class GuardrailPolicy(BaseModel, frozen=True):
-    """护栏策略；F09 guardrail middleware 据此决定是否 interrupt。
-    review.md v2.1.0 P1-4 修复：进顶层 schema 清单（25 → 27）；RuntimeConfig.guardrail_policy 持有本类型实例。
+    """护栏策略；F04 guardrail middleware 据此决定是否 interrupt。
+    三级模式设计：all（全部审批）/ smart（模型判断）/ strict（全部拒绝）。
     """
     model_config = {"frozen": True}
 
     enabled:                       bool                                  # * 是否启用护栏（默认 True）
-    interrupt_on:                  list[ToolSideEffect]                  # * 触发 interrupt 的 ToolSideEffect 列表（默认覆盖全部敏感操作）
+    mode:                          GuardrailMode = "smart"               # * 护栏模式（all / smart / strict；默认 smart）
     redact_pii:                    bool = True                           # - PII 脱敏开关（默认 True）
-    allow_internal_endpoints:      bool = True                           # **review.md v2.1.0 P1-4 新增**：内网 vLLM endpoint allow 开关（默认 True 避免误伤宪法第 IV 条 4 款本地默认模型）
-    internal_endpoint_patterns:    list[str] = []                        # **review.md v2.1.0 P1-4 新增**：hostname glob / IP CIDR 列表（如 `["*.internal.example.com", "10.0.*.*", "192.168.*.*"]`）；用户通过 .env 字段 LANGAGENT_INTERNAL_ENDPOINTS 配置逗号分隔列表
+    allow_internal_endpoints:      bool = True                           # - 内网 vLLM endpoint allow 开关（默认 True 避免误伤宪法第 IV 条 4 款本地默认模型）
+    internal_endpoint_patterns:    list[str] = []                        # - hostname glob / IP CIDR 列表（如 `["*.internal.example.com", "10.0.0.0/8", "192.168.0.0/16"]`）；用户通过 .env 字段 LANGAGENT_INTERNAL_ENDPOINTS 配置逗号分隔列表
 
 class GuardrailDecision(BaseModel, frozen=True):
-    """护栏决策结果；F09 evaluate() 返回值。"""
+    """护栏决策结果；F04 evaluate() 返回值。"""
     model_config = {"frozen": True}
 
     allow:                   bool                # * 是否允许执行（True = 放行 / False = 拦截）
     interrupt:               bool                # * 是否触发 LangGraph interrupt()（HITL 审批）
-    redact:                  bool = False        # - 是否脱敏（红 PII / prompt injection 标注）
+    redact:                  bool = False        # - 是否脱敏（PII / prompt injection 标注）
     reason:                  str                 # * 决策理由（写入 AuditEntry.action）
-    is_internal_endpoint:    bool = False        # **review.md v2.1.0 P1-4 新增**：标记命中内网 endpoint（便于 audit 区分内网 vs 公外）
+    is_internal_endpoint:    bool = False        # - 标记命中内网 endpoint（便于 audit 区分内网 vs 公网）
 ```
 
 ### 磁盘格式与 schema_version（共用）
 
 - `disk_format`: `JSON`（嵌入 `RuntimeConfigSnapshot` 子字段 + `AuditEntry.evidence.policy_snapshot` 字段；不单独写盘）
-- `schema_version`: `v0.1.0`
+- `schema_version`: `v0.2.0`（v0.2.0：三级模式设计，移除 `interrupt_on` 字段，新增 `mode` 字段）
 
 ### GuardrailPolicy 与 LangChain / LangGraph 原生类型映射
 
 | field | langchain_native | langgraph_native | notes |
 |---|---|---|---|
-| `interrupt_on` | N/A | `interrupt` 触发 | LangGraph `interrupt()` 在 tool 调用前触发，与 ToolSideEffect 标注对齐 |
-| `internal_endpoint_patterns` | N/A | N/A | 自定义 glob / CIDR 列表；F09 evaluate() 调 `is_internal()` 函数命中判断 |
+| `mode` | N/A | `interrupt` 触发 | 三级模式（all / smart / strict）决定 LangGraph `interrupt()` 触发策略 |
+| `internal_endpoint_patterns` | N/A | N/A | 自定义 glob / CIDR 列表；F04 evaluate() 调 `is_internal()` 函数命中判断 |
 
 ### GuardrailPolicy reducer 与不可变约束
 
 - 不可变（`frozen=True`）；构造完成后禁止修改；变更需重建新实例。
-- 默认值：`enabled=True` / `interrupt_on=[7 种 ToolSideEffect 全集]` / `redact_pii=True` / `allow_internal_endpoints=True` / `internal_endpoint_patterns=[]`。
-- 用户覆盖：通过 `.env` 字段 `LANGAGENT_GUARDRAIL_ALLOW_INTERNAL_ENDPOINTS`（bool）+ `LANGAGENT_INTERNAL_ENDPOINTS`（逗号分隔 glob / CIDR 列表）注入；F03 config_resolve 在解析后用 `config.with_guardrail_policy(parsed_policy)` 重建 RuntimeConfig 实例。
+- 默认值：`enabled=True` / `mode="smart"` / `redact_pii=True` / `allow_internal_endpoints=True` / `internal_endpoint_patterns=[]`。
+- 用户覆盖：通过 `.env` 字段 `LANGAGENT_GUARDRAIL_MODE`（all / smart / strict）+ `LANGAGENT_GUARDRAIL_ALLOW_INTERNAL_ENDPOINTS`（bool）+ `LANGAGENT_INTERNAL_ENDPOINTS`（逗号分隔 glob / CIDR 列表）注入；F07 config_resolve 在解析后用 `config.with_guardrail_policy(parsed_policy)` 重建 RuntimeConfig 实例。
 
 ### GuardrailDecision 与 LangChain / LangGraph 原生类型映射
 
@@ -1225,13 +1201,7 @@ class GuardrailDecision(BaseModel, frozen=True):
 ### GuardrailDecision reducer 与不可变约束
 
 - 不可变（`frozen=True`）。
-- F09 evaluate() 每次返回新实例；AuditEntry 写入时序列化 `evidence.decision = decision.model_dump()`。
-
-### 扩展接口约定
-
-> MC-2.6 路径 1 落盘形式（FR-043 (a) / Q11）：扩展字段以 `<字段名>_extensibility` 命名约定列出，禁止以 `...` 缩写表达。
-
-- `interrupt_on_extensibility: list[str] = []`：未来新增的 ToolSideEffect 取值（ToolSideEffect schema 已扩展约定）应同步扩展 `interrupt_on` 默认值列表。
+- F04 evaluate() 每次返回新实例；AuditEntry 写入时序列化 `evidence.decision = decision.model_dump()`。
 
 ---
 

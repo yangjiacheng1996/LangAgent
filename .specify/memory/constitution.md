@@ -138,7 +138,6 @@ my-agent/
 2. **middleware 接入方式**：优先 LangChain 内置 middleware；项目专属行为放入智能体目录的 `middleware/`，遵循 LangChain middleware 协议。
 3. **工具（Tool）设计准则**：
    - 每个 tool 一个函数 + Pydantic schema，禁止动态字符串拼 schema。
-   - 工具副作用（写文件、调外部 API、发送消息）必须显式标注，便于 middleware 决策是否 interrupt。
    - 工具不得在 `__init__` 里偷偷起后台线程 / 异步任务。
 
 ### 第 X 条　安全与隐私

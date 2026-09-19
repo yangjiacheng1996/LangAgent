@@ -4,9 +4,11 @@
 
 **Created**: 2026-09-18
 
+**Updated**: 2026-09-19 (Removed tool side effects per feature prompt update)
+
 **Status**: Draft
 
-**Input**: User description: "F02 Phase 2 - cross_cutting_metrics_collector 实现。在 F03 event bus 完成后回填，订阅 protocol_event_bus 的 tool_call / model_response / eval_task_started / eval_task_done 事件，聚合 latency / token usage / error_rate / cost_usd，产出 MetricsSnapshot。"
+**Input**: User description: "F02 Phase 2 - cross_cutting_metrics_collector 实现。在 F03 event bus 完成后回填，订阅 protocol_event_bus 的 tool_call / model_response / eval_task_started / eval_task_done 事件，聚合 latency / token usage / error_rate / cost_usd，产出 MetricsSnapshot。工具侧面效应（tool side effects）已从系统中移除。"
 
 **Constitutional References**: 
 - 宪法第 XV 条：顶层设计优先（必读 `harness/top_level_design/` 三份 artefact）
@@ -208,7 +210,11 @@ As the metrics collector module, I subscribe to the event bus at initialization 
 ### Runtime Call Dependencies
 - None - this module is passively invoked via event bus subscriptions and explicit API calls from F09
 
+### Initialization Responsibility
+- **F06** (`runtime_startup`): MUST call `metrics_collector.initialize(event_bus, pricing_table_path)` during agent startup to subscribe to event bus. The initialization should occur after F03 event bus is ready but before any agent execution begins (i.e., in the "startup" phase per workflow.md).
+
 ### Dependents (Who Calls This Module)
+- **F06** (`runtime_startup`): Calls `initialize()` during startup to subscribe to event bus
 - **F09** (`runtime_exit_handler`): Calls `snapshot()` to generate final metrics before exit, calls `flush()` during cleanup
 - **F03** (`protocol_event_bus`): Publishes events that trigger metrics recording
 - **F08** (`runtime_main_loop_dispatcher`): Indirectly triggers metrics collection via events published to F03
@@ -228,7 +234,7 @@ As the metrics collector module, I subscribe to the event bus at initialization 
 1. **Thread Safety**: All public APIs (`record_*`, `snapshot()`, `flush()`) MUST use locks to protect internal data structures
 2. **No Blocking I/O**: `record_*` methods MUST NOT perform disk I/O, network calls, or other blocking operations
 3. **Event Bus Protocol**: MUST use only the 4 mandatory methods of `EventBusProtocol` (`publish`, `subscribe`, `unsubscribe`, `flush`) - no dependency on F03-specific extensions like `publish_async` or `drain_events`
-4. **Log Tag Whitelist**: `la.cross_cutting.metrics.emit` MUST be registered in F02 Phase 1's `ALLOWED_TAGS` (already part of 46-tag contract)
+4. **Log Tag Whitelist**: `la.cross_cutting.metrics.emit` MUST be registered in F02 Phase 1's `ALLOWED_TAGS` (already part of 45-tag contract)
 5. **No Hard-Coded Paths**: Pricing table path (if loaded from file) MUST be configurable, not hard-coded (宪法第 XIII 条)
 6. **Type Safety**: All public APIs MUST pass `mypy --strict` with no type: ignore comments
 7. **Immutability**: MetricsSnapshot MUST be a frozen dataclass to prevent mutation after creation

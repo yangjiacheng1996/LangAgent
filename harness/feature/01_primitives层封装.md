@@ -3,7 +3,7 @@
 > **Feature ID**: F01
 > **批次**: 第 1 批（基座）
 > **依赖**: 
-> - **F02 Phase 1（`cross_cutting_logger` 模块 + `emit(tag, payload)` 接口 + `ALLOWED_TAGS` ≥**46** 项白名单校验）**（**review.md v1.1.0 P0-5 修复后**：F01 通过 `from langagent.cross_cutting.logger import emit` 调用 F02 emit 接口发射 model_adapt 4 个 + graph_compose 5 个 = 9 个 tag。**硬例外单向边**：`primitives_chat_model_factory → cross_cutting_logger` + `primitives_state_graph_builder → cross_cutting_logger` 在 `architecture_modules.md` v2.4.0 依赖矩阵带 →¹ 标记，CHK-AR-021 校验单向性；**review.md v3.0.0 P2-2 修复补充**：logger 是被动接口（仅提供 `emit()` 方法供调用），不反向依赖 F01。F02 Phase 1 与 F01 在第 1 批并行启动，TDD 阶段 F01 mock `emit()` 测试先于 F02 实现通过）
+> - **F02 Phase 1（`cross_cutting_logger` 模块 + `emit(tag, payload)` 接口 + `ALLOWED_TAGS` ≥**45** 项白名单校验）**（**review.md v1.1.0 P0-5 修复后**：F01 通过 `from langagent.cross_cutting.logger import emit` 调用 F02 emit 接口发射 model_adapt 4 个 + graph_compose 5 个 = 9 个 tag。**硬例外单向边**：`primitives_chat_model_factory → cross_cutting_logger` + `primitives_state_graph_builder → cross_cutting_logger` 在 `architecture_modules.md` v2.4.0 依赖矩阵带 →¹ 标记，CHK-AR-021 校验单向性；**review.md v3.0.0 P2-2 修复补充**：logger 是被动接口（仅提供 `emit()` 方法供调用），不反向依赖 F01。F02 Phase 1 与 F01 在第 1 批并行启动，TDD 阶段 F01 mock `emit()` 测试先于 F02 实现通过）
 > - **F06（`cross_cutting_stage_guard.py` 模块 + `@cross_cutting_stage_guard_decorator` 装饰器）**（**review.md v2.2.2 P0-1 修复新增**）：F01 在 `chat_model_factory.create()` 入口应用 `@cross_cutting_stage_guard_decorator('model_adapt')` 装饰器，在 `state_graph_builder.build()` 入口应用 `@cross_cutting_stage_guard_decorator('graph_compose')` 装饰器。**硬例外单向边**：`primitives_chat_model_factory → cross_cutting_stage_guard` + `primitives_state_graph_builder → cross_cutting_stage_guard` 在 matrix 带 →¹ 标记，CHK-AR-023 校验装饰器应用。
 > - **F04（`cross_cutting_guardrail_middleware.build_middleware`）**（**review.md v2.2.2 P0-2 修复新增**）：F01 §3.4a 步骤 5 在 `state_graph_builder.build()` 内部调用 `build_middleware(policy=RuntimeConfig.guardrail_policy)` 实例化系统护栏 middleware 并注入图。**硬例外单向边**：`primitives_state_graph_builder → cross_cutting_guardrail_middleware` 在 matrix 带 →² 标记，CHK-AR-024 校验单向性。
 > **被依赖**: F05 / F03 / F02 / F04 / F08 / F09 / F10 / F12（直接或间接）
@@ -74,7 +74,7 @@ F01 是 primitives 层唯一接触 LangChain / LangGraph 的模块，因此**也
 | `la.runtime.graph_compose.ok` | `state_graph_builder.build()` 成功返回前 | F01 `build()` 出口（return 前） |
 | `la.runtime.graph_compose.fail` | `state_graph_builder.build()` 异常路径 | F01 `build()` 异常捕获（任何 `GraphCompileError` / `ToolBindingError` 抛出前） |
 
-> **删除 review.md v0.3.0 之前的"不实现日志"声明**：F01 §六 原写"不实现 Event / Span / Metrics 写入；本 feature 不打日志标签，只返回结果"，违反 workflow.md 日志标签表对 9 个 tag 的发射要求。**review.md v0.3.0 S-1 修复后**：F01 必须在 model_adapt / graph_compose 两个阶段发射上述 9 个 tag。F02 提供 `emit()` 接口 + **46** 项 tag 白名单校验；F01 通过 import `from langagent.cross_cutting.logger import emit` 调用。
+> **删除 review.md v0.3.0 之前的"不实现日志"声明**：F01 §六 原写"不实现 Event / Span / Metrics 写入；本 feature 不打日志标签，只返回结果"，违反 workflow.md 日志标签表对 9 个 tag 的发射要求。**review.md v0.3.0 S-1 修复后**：F01 必须在 model_adapt / graph_compose 两个阶段发射上述 9 个 tag。F02 提供 `emit()` 接口 + **45** 项 tag 白名单校验；F01 通过 import `from langagent.cross_cutting.logger import emit` 调用。
 
 ### 3.4a Middleware 加载协议（MiddlewareSpec 由 F01 拥有）
 
@@ -164,7 +164,7 @@ F01 在 `chat_model_factory.create()` 入口 / 出口 / 异常路径 / endpoint_
 - [ ] `test_create_emits_model_adapt_fail_log_on_provider_unsupported`：mock 抛 `ProviderUnsupportedError` → 异常捕获路径收到 `la.runtime.model_adapt.fail` 日志，payload 含 `error_type` / `error_message`。
 - [ ] `test_create_emits_model_adapt_fail_log_on_endpoint_unreachable`：mock 抛 `EndpointUnreachableError` → 同上。
 - [ ] `test_create_emits_model_adapt_fail_log_on_auth_failed`：mock 抛 `AuthFailedError` → 同上。
-- [ ] `test_create_log_tags_in_whitelist`：上述 4 个 tag 全部在 F02 `ALLOWED_TAGS` 集合（≥**46** 项）中（验证不抛 `UnknownLogTagError`）。
+- [ ] `test_create_log_tags_in_whitelist`：上述 4 个 tag 全部在 F02 `ALLOWED_TAGS` 集合（≥**45** 项）中（验证不抛 `UnknownLogTagError`）。
 
 ### 4.1a `primitives_langchain_types` re-export 测试（**review.md M-3 修复新增**）
 
@@ -204,7 +204,7 @@ F01 在 `state_graph_builder.build()` 入口 / middleware_bind / tool_bind / 出
 - [ ] `test_build_emits_graph_compose_ok_log`：成功 build → 出口前收到 `la.runtime.graph_compose.ok` 日志，payload 含 `latency_ms` / `checkpointer_type`。
 - [ ] `test_build_emits_graph_compose_fail_log_on_compile_error`：mock 抛 `GraphCompileError` → 异常路径收到 `la.runtime.graph_compose.fail` 日志。
 - [ ] `test_build_emits_graph_compose_fail_log_on_tool_binding_error`：mock 抛 `ToolBindingError` → 同上。
-- [ ] `test_build_log_tags_in_whitelist`：上述 5 个 tag 全部在 F02 `ALLOWED_TAGS` 集合（≥**46** 项）中。
+- [ ] `test_build_log_tags_in_whitelist`：上述 5 个 tag 全部在 F02 `ALLOWED_TAGS` 集合（≥**45** 项）中。
 - [ ] **`test_build_instantiates_system_guardrail_middleware`**（**review.md v2.2.2 P0-2 修复新增**）：mock `cross_cutting_guardrail_middleware.build_middleware` → 调用 `build()` 时该函数被调用 1 次，参数 = `policy=RuntimeConfig.guardrail_policy`；返回的 `AgentMiddleware` 实例被加入 graph 的 middleware 列表；mock F04 产出的 `AgentMiddleware` 实例被注入到 `CompiledStateGraph` 编译产物中。
 - [ ] **`test_build_skips_guardrail_when_policy_is_none`**（**review.md v2.2.2 P0-2 修复新增兜底测试**）：构造 `RuntimeConfig.guardrail_policy=None`（schema 边界情况）→ `build()` 不调用 `build_middleware`；graph 编译成功；仅 USER middleware 注入。验证 schema 边界兜底逻辑。
 - [ ] **`test_build_imports_guardrail_via_cross_cutting_path`**（**review.md v2.2.2 P0-2 修复新增静态检查**）：grep `langagent/primitives/state_graph_builder.py` import 块 → 应包含 `from langagent.cross_cutting.guardrail_middleware import build_middleware`；不应包含 `from langagent.cross_cutting.stage_guard import ...`（**review.md v2.2.2 P0-1 修复后**：stage_guard 在 cross_cutting 层，F01 primitives 通过 cross_cutting_stage_guard 调用而非通过 cross_cutting_guardrail_middleware 调用；详见 F01 §3.1 装饰器应用）。

@@ -196,6 +196,9 @@ def test_publish_handler_error_isolated():
     )
     bus.publish(event)
     
+    # Wait for all handlers to complete (including the one that raises)
+    bus.flush(timeout=2.0)
+    
     # Verify handler1 and handler3 still received event
     assert len(received_1) == 1
     assert len(received_3) == 1

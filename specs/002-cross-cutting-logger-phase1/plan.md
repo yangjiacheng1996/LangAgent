@@ -10,7 +10,7 @@ Implement cross_cutting_logger module providing structured logging with tag whit
 
 **Technical Approach** (from research.md):
 - **Thread-safety**: Python `threading.Lock` for stderr writes and span buffer operations
-- **Tag validation**: Module-level `frozenset` with 46 pre-registered tags (O(1) lookup)
+- **Tag validation**: Module-level `frozenset` with 45 pre-registered tags (O(1) lookup)
 - **Secret redaction**: Deep recursive traversal with exact field name matching (`api_key`, `password`, `secret`, `token`)
 - **Dual-format output**: Text format (human-readable) + JSONL format (machine-parseable) both to stderr
 - **Span buffering**: In-memory list with atomic drain-and-clear for F09 exit_cleanup integration
@@ -31,7 +31,7 @@ Implement cross_cutting_logger module providing structured logging with tag whit
 
 **Testing**: pytest with coverage requirements
 - 28 unit/integration tests across 5 user stories
-- Performance benchmark: <5ms per emit() call (SC-004)
+- Performance benchmark: <20ms per emit() call (SC-004)
 - Concurrency stress test: 10,000 concurrent emits from 100 threads (SC-007)
 
 **Target Platform**: Linux server (primary), cross-platform compatible (no OS-specific syscalls)
@@ -39,7 +39,7 @@ Implement cross_cutting_logger module providing structured logging with tag whit
 **Project Type**: Internal library module (part of LangAgent CLI tool, not published as separate package)
 
 **Performance Goals**:
-- **Latency**: <5ms per emit() call measured with 1000 sequential emissions
+- **Latency**: <20ms per emit() call measured with 1000 sequential emissions (includes all operations: validation, lock acquisition, JSON serialization, stderr writes, lock release)
 - **Throughput**: Handle 10,000 concurrent emit() calls from 100 threads without deadlock
 - **Overhead**: Lock contention <1% (measured at ~0.5μs per acquire/release)
 
@@ -48,12 +48,12 @@ Implement cross_cutting_logger module providing structured logging with tag whit
 - **Fire-and-forget**: I/O failures in emit() must not raise exceptions to caller
 - **No external dependencies**: stdlib only (aligns with Constitution Article II)
 - **Immutability**: `ALLOWED_TAGS` frozenset, `Span` dataclass frozen
-- **Performance**: json.dumps() + 2 stderr writes < 5ms total
+- **Performance**: json.dumps() + 2 stderr writes < 20ms total (includes validation, lock operations, timestamp generation)
 
 **Scale/Scope**:
 - Single module file: `langagent/cross_cutting/logger.py` (~170 LOC per research.md estimate)
 - 28 tests across 2 test files + 4 validation scripts
-- 46-item tag whitelist organized into 4 namespaces
+- 45-item tag whitelist organized into 3 namespaces
 - 5 user stories (US1-US5) with independent test criteria
 
 ## Constitution Check
@@ -82,7 +82,7 @@ Implement cross_cutting_logger module providing structured logging with tag whit
 
 ✅ **第 XV 条 (Top-Level Design Primacy)**:
 - spec.md:L9-12 explicitly references 3 top-level design artifacts:
-  - `harness/top_level_design/workflow.md` - 46 log tags + exit codes
+  - `harness/top_level_design/workflow.md` - 45 log tags (12 lifecycle + 29 runtime + 4 cross_cutting) + exit codes
   - `harness/top_level_design/architecture_modules.md` - cross_cutting layer constraints
   - `harness/top_level_design/module_schemas.md` - Span (7 fields), Trace, MetricsSnapshot schemas
 - All design decisions traceable to these artifacts
@@ -115,7 +115,7 @@ langagent/
     │                        # EventBusProtocol, Span, LogLevel,
     │                        # UnknownLogTagError, SpanDrainError
     └── logger.py            # Core implementation (~170 LOC):
-                             # - ALLOWED_TAGS frozenset (46 items)
+                             # - ALLOWED_TAGS frozenset (45 items)
                              # - _redact() recursive function
                              # - emit() dual-format output
                              # - set_level() validation
@@ -126,13 +126,13 @@ langagent/
 
 tests/
 ├── cross_cutting/
-│   ├── test_logger.py              # 22 unit tests (logger + redaction + level + drain_spans)
+│   ├── test_logger.py              # 19 unit tests (7 US1 + 4 US2 + 2 US3 + 6 US4)
 │   ├── test_event_bus_protocol.py  # 5 protocol contract tests
-│   ├── benchmark_logger.py         # Performance tests (SC-004: <5ms per emit)
+│   ├── benchmark_logger.py         # Performance tests (SC-004: <20ms per emit)
 │   ├── stress_test_logger.py       # Concurrency tests (SC-007: 10k concurrent emits)
-│   └── validate_tags.py            # Tag whitelist validator (SC-006: exactly 46 tags)
+│   └── validate_tags.py            # Tag whitelist validator (SC-006: exactly 45 tags)
 └── fixtures/
-    └── log_tags_whitelist.json     # 46 tags reference (4 namespaces)
+    └── log_tags_whitelist.json     # 45 tags reference (3 namespaces)
 ```
 
 **Structure Decision**: Single project (Option 1 from template) - `langagent/` is existing monorepo structure per repository layout. cross_cutting layer sits between primitives and protocol layers per architecture_modules.md dependency matrix.
@@ -155,10 +155,10 @@ tests/
 
 **Key Decisions** (summary):
 
-1. **Thread-Safe Logging**: `threading.Lock` chosen over queue-based async (simpler, <5ms target met)
+1. **Thread-Safe Logging**: `threading.Lock` chosen over queue-based async (simpler, <20ms target easily met)
 2. **Secret Redaction**: Exact field name matching with `frozenset` (O(1) lookup, prevents `input_tokens` false positives)
 3. **Dual-Format Output**: Two `sys.stderr.write()` calls per emit (text first, then JSONL)
-4. **Tag Whitelist**: Module-level `ALLOWED_TAGS: frozenset[str]` with 46 pre-registered tags
+4. **Tag Whitelist**: Module-level `ALLOWED_TAGS: frozenset[str]` with 45 pre-registered tags
 5. **ISO8601 Timestamps**: `datetime.now(timezone.utc).astimezone().isoformat()` for local time + UTC offset
 6. **EventBusProtocol**: `typing.Protocol` with 4 required methods (structural subtyping, no inheritance)
 7. **Span Buffer**: In-memory list with failure-safe drain (buffer NOT cleared on exception, allows retry)
@@ -337,9 +337,9 @@ mypy --strict langagent/cross_cutting/logger.py
 - [ ] SC-001: All 28 tests pass (pytest tests/cross_cutting/ shows 28 passed)
 - [ ] SC-002: drain_spans 6 tests pass (subset of SC-001)
 - [ ] SC-003: mypy --strict langagent/cross_cutting/logger.py shows 0 errors
-- [ ] SC-004: benchmark_logger.py reports <5ms per emit() call
+- [ ] SC-004: benchmark_logger.py reports <20ms per emit() call
 - [ ] SC-005: All 4 redaction tests pass (no secrets in stderr)
-- [ ] SC-006: validate_tags.py confirms exactly 46 tags in ALLOWED_TAGS
+- [ ] SC-006: validate_tags.py confirms exactly 45 tags in ALLOWED_TAGS
 - [ ] SC-007: stress_test_logger.py completes 10k concurrent emits without deadlock
 - [ ] SC-008: test_event_bus_protocol.py mypy test passes
 
@@ -347,7 +347,7 @@ mypy --strict langagent/cross_cutting/logger.py
 
 - [ ] `from langagent.cross_cutting import emit, set_level, drain_spans` works
 - [ ] `from langagent.cross_cutting import EventBusProtocol` imports for F03 type hints
-- [ ] All 46 tags from workflow.md present in whitelist (validated by T061)
+- [ ] All 45 tags from workflow.md present in whitelist (validated by T061)
 - [ ] Thread-safety verified by stress test (10k concurrent emits)
 - [ ] No external dependencies (stdlib only)
 

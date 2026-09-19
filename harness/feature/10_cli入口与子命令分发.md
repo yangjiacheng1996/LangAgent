@@ -133,7 +133,16 @@ langagent run [agent_dir]:
     return exit_handler.cleanup(final_state, config)                     # 阶段 6 exit_cleanup（F09 内部发射 la.runtime.exit_cleanup.{start, checkpointer_close, report_write, audit_flush, ok, fail}）
 
 langagent eval [agent_dir]:
-    # review.md v2.1.0 P1-3 修复后：F10 dispatch eval 与 run dispatch 同构——入口 resolve config 一次，传 F11 runner + cleanup
+    # ========== F10 dispatch eval 分支职责边界（与 F11 接口契约）==========
+    # 1. **config 解析**：F10 负责调用 config_resolver.resolve() 解析 RuntimeConfig，
+    #    **一次解析后通过 keyword-only `config` 参数注入 eval_runner.run()**
+    # 2. **args 构造**：F10 parse_argv() 输出 {'cli_args': dict, 'grader_only': str|None, 'task': str|None} 结构，
+    #    作为 `args` 参数传入
+    # 3. **runner 调用**：result = eval_runner.run(agent_dir, *, config=config, args=args)
+    #    返回 EvalRunResult(eval_report, final_state, exit_code)
+    # 4. **cleanup 调用**：F10 拿到 result 后调 exit_handler.cleanup(result.final_state, config, eval_report=result.eval_report) 写盘
+    # F11 runner 不持有 F07 config_resolver import；config 完全由 F10 注入。
+    # ======================================================================
     loaded = dir_loader.load(agent_dir)                                  # 阶段 1 dir_load（F06）
     config = config_resolver.resolve(cli_args, agent_dir)                # 阶段 2 config_resolve（F07；review.md v2.1.0 P1-3 修复强调：与 run 分支同构）
     # review.md v2.2.0 P2-9 修复：F10 dispatch 显式构造 args dict（避免 F11 跨层 import F10 CliArgs 类型）

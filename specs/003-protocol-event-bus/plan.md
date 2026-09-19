@@ -10,7 +10,7 @@
 
 F03 implements a publish/subscribe event bus for cross-module communication in LangAgent's protocol layer. The event bus provides synchronous and asynchronous event publication, error isolation, thread-safe operations, graceful shutdown via `flush()`, and event drainage for persistence. This infrastructure enables loose coupling between runtime modules (publishers) and cross-cutting modules (subscribers) while maintaining system reliability.
 
-**Technical Approach**: Implement an in-memory event bus using Python's `threading.Lock` for thread safety, `asyncio.gather(return_exceptions=True)` for async handler isolation, and a FIFO subscription registry for deterministic handler execution order. The bus accumulates all events in an internal buffer for later JSONL persistence by F09 exit handler.
+**Technical Approach**: Implement an in-memory event bus using Python's `threading.RLock` for thread safety, `asyncio.gather(return_exceptions=True)` for async handler isolation, and a FIFO subscription registry for deterministic handler execution order. The bus accumulates all events in an internal buffer for later JSONL persistence by F09 exit handler.
 
 ## Technical Context
 
@@ -44,6 +44,10 @@ F03 implements a publish/subscribe event bus for cross-module communication in L
 - 13+ event types in whitelist (tool_call, model_response, guardrail_block, etc.)
 - ~10-50 subscribers per event type typical
 - ~280 lines of code estimated for core EventBus class
+
+**Architecture Notes**:
+- ToolSpec schema v0.2.0 removed `side_effects` field in favor of three-level guardrail mode (all/smart/strict) with `requires_approval` per-tool annotation
+- F03 event bus does not publish or consume side effect metadata; guardrail decisions are handled by F04 middleware layer
 
 ## Constitution Check
 
@@ -90,7 +94,7 @@ specs/003-protocol-event-bus/
 │   └── event_bus_api.md
 ├── checklists/
 │   └── requirements.md  # Spec quality checklist (already exists)
-└── tasks.md             # Phase 2 output (/speckit.tasks - NOT created yet)
+└── tasks.md             # Phase 2 output (/speckit.tasks)
 ```
 
 ### Source Code (repository root)

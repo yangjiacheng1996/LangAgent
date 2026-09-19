@@ -118,7 +118,7 @@ json.dumps({
 - `frozenset` is immutable (prevents runtime modification per edge case requirement)
 - O(1) membership test: `if tag not in ALLOWED_TAGS: raise UnknownLogTagError(tag)`
 - Explicit listing forces deliberate tag registration (prevents typos)
-- 46 tags organized into 4 namespaces for maintainability
+- 45 tags organized into 3 namespaces for maintainability (12 lifecycle.* + 29 runtime.* + 4 cross_cutting.*)
 
 **Tag Organization**:
 ```python
@@ -141,9 +141,6 @@ ALLOWED_TAGS = frozenset({
     # la.cross_cutting.* (4 tags) - cross-cutting concerns
     "la.cross_cutting.guardrail.block", "la.cross_cutting.audit.write",
     "la.cross_cutting.metrics.emit", "la.cross_cutting.event_handler_error",
-    
-    # la.tool.* (1 tag) - tool warnings
-    "la.tool.suspicious_missing_side_effects",
 })
 ```
 
@@ -346,7 +343,7 @@ def emit(tag: str, payload: dict[str, Any]) -> None:
 Based on research findings, implementation order:
 
 1. **Core Logger Module** (~80 lines)
-   - Define `ALLOWED_TAGS` frozenset (46 items)
+   - Define `ALLOWED_TAGS` frozenset (45 items)
    - Implement `_redact()` function
    - Implement `emit()` with lock + dual-format output
    - Implement `set_level()` with validation

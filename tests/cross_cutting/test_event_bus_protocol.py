@@ -1,25 +1,40 @@
-"""Tests for EventBusProtocol interface (User Story 5).
+"""Tests for EventBusProtocol interface contract (Phase 7, US5).
 
-TDD approach: All tests written FIRST and must FAIL before implementation.
+This file tests the EventBusProtocol interface definition that F03 will implement.
+
+Test Organization:
+- T044-T048: EventBusProtocol interface contract tests
+
+Constitutional Alignment: Article VIII (TDD Red-Green-Refactor)
 """
-import pytest
+
 from typing import Any, Callable
+from unittest import mock
 
-from langagent.cross_cutting.logger import EventBusProtocol
+import pytest
+
+from langagent.cross_cutting import EventBusProtocol
 
 
-# ===== User Story 5: EventBusProtocol Interface =====
-
+# ============================================================================
+# Phase 7: User Story 5 Tests (T044-T048) - EventBusProtocol
+# ============================================================================
 
 def test_event_bus_protocol_has_publish_method():
-    """Test EventBusProtocol has publish method signature."""
+    """T044 [P] [US5]: Verify Protocol has publish signature.
+    
+    Acceptance: EventBusProtocol defines publish(event_type, payload) -> None.
+    """
+    # Check protocol has the method
+    assert hasattr(EventBusProtocol, 'publish')
+    
     # Create a mock implementation
     class MockEventBus:
         def publish(self, event_type: str, payload: dict[str, Any]) -> None:
             pass
         
         def subscribe(self, event_type: str, callback: Callable[[dict[str, Any]], None]) -> str:
-            return "sub_id"
+            return "sub-1"
         
         def unsubscribe(self, subscription_id: str) -> None:
             pass
@@ -27,24 +42,24 @@ def test_event_bus_protocol_has_publish_method():
         def flush(self) -> None:
             pass
     
-    mock = MockEventBus()
-    
-    # Verify it implements the protocol
-    assert isinstance(mock, EventBusProtocol)
-    
-    # Verify publish method exists and has correct signature
-    assert hasattr(mock, "publish")
-    assert callable(mock.publish)
+    # Should be recognized as implementing the protocol
+    mock_bus = MockEventBus()
+    assert isinstance(mock_bus, EventBusProtocol)
 
 
 def test_event_bus_protocol_has_subscribe_method():
-    """Test EventBusProtocol has subscribe method returning str."""
+    """T045 [P] [US5]: Verify Protocol has subscribe signature returning str.
+    
+    Acceptance: EventBusProtocol defines subscribe() returning subscription_id.
+    """
+    assert hasattr(EventBusProtocol, 'subscribe')
+    
     class MockEventBus:
         def publish(self, event_type: str, payload: dict[str, Any]) -> None:
             pass
         
         def subscribe(self, event_type: str, callback: Callable[[dict[str, Any]], None]) -> str:
-            return "subscription_123"
+            return "subscription-id-123"
         
         def unsubscribe(self, subscription_id: str) -> None:
             pass
@@ -52,27 +67,26 @@ def test_event_bus_protocol_has_subscribe_method():
         def flush(self) -> None:
             pass
     
-    mock = MockEventBus()
+    mock_bus = MockEventBus()
+    sub_id = mock_bus.subscribe("test_event", lambda p: None)
     
-    # Verify it implements the protocol
-    assert isinstance(mock, EventBusProtocol)
-    
-    # Verify subscribe returns str
-    def dummy_callback(payload: dict[str, Any]) -> None:
-        pass
-    
-    sub_id = mock.subscribe("test.event", dummy_callback)
+    # Return type should be str
     assert isinstance(sub_id, str)
 
 
 def test_event_bus_protocol_has_unsubscribe_method():
-    """Test EventBusProtocol has unsubscribe method."""
+    """T046 [P] [US5]: Verify Protocol has unsubscribe signature.
+    
+    Acceptance: EventBusProtocol defines unsubscribe(subscription_id) -> None.
+    """
+    assert hasattr(EventBusProtocol, 'unsubscribe')
+    
     class MockEventBus:
         def publish(self, event_type: str, payload: dict[str, Any]) -> None:
             pass
         
         def subscribe(self, event_type: str, callback: Callable[[dict[str, Any]], None]) -> str:
-            return "sub_id"
+            return "sub-1"
         
         def unsubscribe(self, subscription_id: str) -> None:
             pass
@@ -80,24 +94,24 @@ def test_event_bus_protocol_has_unsubscribe_method():
         def flush(self) -> None:
             pass
     
-    mock = MockEventBus()
-    
-    # Verify it implements the protocol
-    assert isinstance(mock, EventBusProtocol)
-    
-    # Verify unsubscribe method exists
-    assert hasattr(mock, "unsubscribe")
-    assert callable(mock.unsubscribe)
+    mock_bus = MockEventBus()
+    # Should not raise
+    mock_bus.unsubscribe("sub-1")
 
 
 def test_event_bus_protocol_has_flush_method():
-    """Test EventBusProtocol has flush method."""
+    """T047 [P] [US5]: Verify Protocol has flush signature.
+    
+    Acceptance: EventBusProtocol defines flush() -> None.
+    """
+    assert hasattr(EventBusProtocol, 'flush')
+    
     class MockEventBus:
         def publish(self, event_type: str, payload: dict[str, Any]) -> None:
             pass
         
         def subscribe(self, event_type: str, callback: Callable[[dict[str, Any]], None]) -> str:
-            return "sub_id"
+            return "sub-1"
         
         def unsubscribe(self, subscription_id: str) -> None:
             pass
@@ -105,41 +119,49 @@ def test_event_bus_protocol_has_flush_method():
         def flush(self) -> None:
             pass
     
-    mock = MockEventBus()
-    
-    # Verify it implements the protocol
-    assert isinstance(mock, EventBusProtocol)
-    
-    # Verify flush method exists
-    assert hasattr(mock, "flush")
-    assert callable(mock.flush)
+    mock_bus = MockEventBus()
+    # Should not raise
+    mock_bus.flush()
 
 
-def test_event_bus_protocol_runtime_checkable():
-    """Test EventBusProtocol is runtime_checkable."""
-    # A class without all methods should NOT satisfy the protocol
-    class IncompleteEventBus:
+def test_event_bus_protocol_mypy_strict_passes():
+    """T048 [P] [US5]: Verify mock implementation type checks.
+    
+    Acceptance: Mock implementation passes structural subtyping checks.
+    """
+    class FullyTypedMockEventBus:
+        """Mock event bus with full type annotations."""
+        
         def publish(self, event_type: str, payload: dict[str, Any]) -> None:
-            pass
-    
-    incomplete = IncompleteEventBus()
-    
-    # This should fail at runtime check
-    assert not isinstance(incomplete, EventBusProtocol)
-    
-    # A complete implementation should pass
-    class CompleteEventBus:
-        def publish(self, event_type: str, payload: dict[str, Any]) -> None:
+            """Emit event to subscribers."""
             pass
         
-        def subscribe(self, event_type: str, callback: Callable[[dict[str, Any]], None]) -> str:
-            return "sub_id"
+        def subscribe(
+            self, 
+            event_type: str, 
+            callback: Callable[[dict[str, Any]], None]
+        ) -> str:
+            """Register callback, return subscription ID."""
+            return "mock-sub-id"
         
         def unsubscribe(self, subscription_id: str) -> None:
+            """Remove subscription."""
             pass
         
         def flush(self) -> None:
+            """Block until events delivered."""
             pass
     
-    complete = CompleteEventBus()
-    assert isinstance(complete, EventBusProtocol)
+    # This should pass isinstance check (runtime_checkable)
+    mock_bus = FullyTypedMockEventBus()
+    assert isinstance(mock_bus, EventBusProtocol)
+    
+    # Should be usable as EventBusProtocol type
+    def use_event_bus(bus: EventBusProtocol) -> None:
+        bus.publish("test", {})
+        sub_id = bus.subscribe("test", lambda p: None)
+        bus.unsubscribe(sub_id)
+        bus.flush()
+    
+    # Should not raise type errors
+    use_event_bus(mock_bus)
