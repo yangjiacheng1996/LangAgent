@@ -1,0 +1,9 @@
+[project]
+name = "sample-agent"
+version = "0.1.0"
+description = "Sample agent for testing"
+requires-python = ">=3.10"
+dependencies = [
+    "langchain-core>=0.2.0",
+    "langgraph>=0.1.0",
+]
