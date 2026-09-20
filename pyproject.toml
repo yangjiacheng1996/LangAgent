@@ -22,6 +22,7 @@ dependencies = [
     "langgraph-checkpoint-sqlite>=0.1.0",
     "langgraph-checkpoint-postgres>=0.1.0",
     "charset-normalizer>=3.0.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.optional-dependencies]
