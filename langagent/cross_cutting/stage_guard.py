@@ -44,6 +44,12 @@ STAGE_BLACKLIST_TABLE: dict[str, dict[str, list[str]]] = {
         'StateGraph': ['compile'],
     },
     'graph_compile': {},
+    'main_loop': {
+        'BaseChatModel': ['__init__'],
+        'RuntimeDirLoader': ['load'],
+        'RuntimeConfigResolver': ['resolve'],
+        'dotenv': ['load_dotenv', 'find_dotenv'],
+    },
     'executor_run': {},
     'eval_score': {},
 }

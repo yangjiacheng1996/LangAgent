@@ -1,20 +1,98 @@
-"""RuntimeConfig and GuardrailPolicy schemas for configuration resolution.
+"""AgentState TypedDict and runtime configuration schemas.
 
-This module defines the Pydantic models used to represent runtime configuration
-after the config_resolve stage (stage 2) completes. RuntimeConfig is frozen to
-prevent accidental modification during runtime.
+This module defines:
+1. AgentState - The 5-field state container for LangGraph execution
+2. ErrorEntry - Structured error record format for tool failures
+3. RuntimeConfig - Frozen configuration container (legacy, to be migrated)
+4. GuardrailPolicy - Security and PII redaction policy (legacy)
 
 Constitutional Alignment:
-- Article XII: Implements 4-source priority chain (CLI > env > .env > defaults)
-- Article IV: Model abstraction with openai-compatible default provider
-- Article X: GuardrailPolicy for security constraints
+- Article VI: Agent Loop & State Design (AgentState is the authoritative state)
+- Article XII: Configuration resolution (RuntimeConfig)
+- Article X: Security & Privacy (GuardrailPolicy)
 """
 
-from typing import Any, Literal
+from typing import Any, Annotated, Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict
 
-from langagent.primitives.langchain_types import BaseChatModel
+from langagent.primitives.langchain_types import BaseChatModel, BaseMessage, add_messages
+from langagent.primitives.state_reducers import (
+    replace_with_merge,
+    merge_dict,
+    overwrite_or_merge,
+)
+
+
+# ============================================================================
+# Phase 2: Foundational - AgentState TypedDict (T011, T012)
+# ============================================================================
+
+
+class AgentState(TypedDict, total=False):
+    """LangAgent main graph state container with 5 annotated fields.
+    
+    This TypedDict serves as the authoritative state schema for LangGraph execution.
+    All fields are optional (total=False) to allow partial initialization.
+    
+    Reducer functions are imported from primitives.state_reducers (F08 does not define reducers).
+    
+    Fields:
+        messages: Message history with add_messages reducer (append, don't overwrite)
+        todos: Task list with replace_with_merge reducer (complete replacement)
+        files: File state dict with merge_dict reducer (key-level merge)
+        context: Context metadata with overwrite_or_merge reducer (mode-based merge)
+        scratchpad: Temporary reasoning data with replace_with_merge reducer
+            Special keys:
+                - "errors": list[ErrorEntry] - Tool execution error records
+    
+    Constitutional Alignment:
+        - Article VI: Self-defined 5-field TypedDict (not LangGraph MessagesState)
+        - Article VIII: TDD rigidity (tests written before implementation)
+        - Article XV: Top-level design primacy (aligns with module_schemas.md)
+    """
+    
+    messages: Annotated[list[BaseMessage], add_messages]
+    todos: Annotated[list[dict[str, Any]], replace_with_merge]
+    files: Annotated[dict[str, dict[str, Any]], merge_dict]
+    context: Annotated[dict[str, Any], overwrite_or_merge]
+    scratchpad: Annotated[dict[str, Any], replace_with_merge]
+
+
+class ErrorEntry(TypedDict):
+    """Structured tool execution error record.
+    
+    Stored in state.scratchpad["errors"] as a list of error entries.
+    Each entry captures essential debugging information without bloating state.
+    
+    Fields:
+        turn: Turn number when error occurred (1-indexed)
+        tool: Tool name (e.g., "echo", "search")
+        error: Error message in format "ExceptionClass: message"
+        timestamp: ISO8601 UTC timestamp (e.g., "2026-09-20T10:30:45.123456Z")
+    
+    Example:
+        {
+            "turn": 3,
+            "tool": "echo",
+            "error": "TimeoutError: Operation timed out after 5s",
+            "timestamp": "2026-09-20T10:30:45.123456Z"
+        }
+    
+    Constitutional Alignment:
+        - Article IX: Quality Diagnostics (structured error tracking)
+        - Clarification Q4: 4-field format with ISO8601 timestamp
+    """
+    
+    turn: int
+    tool: str
+    error: str
+    timestamp: str
+
+
+# ============================================================================
+# Legacy RuntimeConfig (to be migrated to separate file in future)
+# ============================================================================
 
 
 class GuardrailPolicy(BaseModel):
@@ -131,3 +209,11 @@ class RuntimeConfig(BaseModel):
             New RuntimeConfig instance with updated guardrail_policy field
         """
         return self.model_copy(update={"guardrail_policy": policy})
+
+
+__all__ = [
+    "AgentState",
+    "ErrorEntry",
+    "RuntimeConfig",
+    "GuardrailPolicy",
+]
