@@ -45,7 +45,7 @@ class Span:
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
-# T007: Define ALLOWED_TAGS frozenset with 45 tags (FR-002, FR-018)
+# T007: Define ALLOWED_TAGS frozenset with 47 tags (FR-002, FR-018)
 ALLOWED_TAGS: frozenset[str] = frozenset({
     # la.lifecycle.* (12 tags) - user-facing CLI lifecycle events
     "la.lifecycle.init.start",
@@ -61,7 +61,7 @@ ALLOWED_TAGS: frozenset[str] = frozenset({
     "la.lifecycle.doctor.check",
     "la.lifecycle.doctor.report",
     
-    # la.runtime.* (29 tags) - internal stage events
+    # la.runtime.* (31 tags) - internal stage events
     "la.runtime.dir_load.start",
     "la.runtime.dir_load.ok",
     "la.runtime.dir_load.fail",
@@ -91,6 +91,8 @@ ALLOWED_TAGS: frozenset[str] = frozenset({
     "la.runtime.exit_cleanup.audit_flush",
     "la.runtime.exit_cleanup.ok",
     "la.runtime.exit_cleanup.fail",
+    "la.runtime.skill_load_failed",
+    "la.runtime.tool_load_failed",
     
     # la.cross_cutting.* (4 tags) - cross-cutting concerns
     "la.cross_cutting.guardrail.block",

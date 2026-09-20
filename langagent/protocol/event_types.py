@@ -18,6 +18,7 @@ ALLOWED_EVENT_TYPES: frozenset[str] = frozenset({
     "skill_loaded",       # Skill loaded successfully
     "skill_load_failed",  # Skill loading failed
     "tool_registered",    # Tool registered in tool registry
+    "tool_load_failed",   # Tool loading failed
     
     # Graph events (F01)
     "graph_composed",     # LangGraph compiled successfully
