@@ -45,7 +45,7 @@ class Span:
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
-# T007: Define ALLOWED_TAGS frozenset with 47 tags (FR-002, FR-018)
+# T007: Define ALLOWED_TAGS frozenset with 48 tags (FR-002, FR-018)
 ALLOWED_TAGS: frozenset[str] = frozenset({
     # la.lifecycle.* (12 tags) - user-facing CLI lifecycle events
     "la.lifecycle.init.start",
@@ -61,7 +61,7 @@ ALLOWED_TAGS: frozenset[str] = frozenset({
     "la.lifecycle.doctor.check",
     "la.lifecycle.doctor.report",
     
-    # la.runtime.* (31 tags) - internal stage events
+    # la.runtime.* (32 tags) - internal stage events
     "la.runtime.dir_load.start",
     "la.runtime.dir_load.ok",
     "la.runtime.dir_load.fail",
@@ -84,6 +84,7 @@ ALLOWED_TAGS: frozenset[str] = frozenset({
     "la.runtime.main_loop.model_call",
     "la.runtime.main_loop.tool_call",
     "la.runtime.main_loop.tool_result",
+    "la.runtime.main_loop.near_limit",
     "la.runtime.main_loop.end",
     "la.runtime.exit_cleanup.start",
     "la.runtime.exit_cleanup.checkpointer_close",
@@ -130,6 +131,7 @@ _REDACT_KEYS: frozenset[str] = frozenset({"api_key", "password", "secret", "toke
 
 _emit_lock = threading.Lock()
 _current_level: int = 20  # Default INFO level
+_silent_mode: bool = False  # Silent mode for chat/interactive sessions
 
 _LEVEL_VALUES: dict[str, int] = {
     "DEBUG": 10,
@@ -243,6 +245,10 @@ def emit(tag: str, payload: dict[str, Any]) -> None:
     if not isinstance(payload, dict):
         raise TypeError(f"Payload must be dict, got {type(payload).__name__}")
     
+    # Check silent mode - suppress all output in interactive sessions
+    if _silent_mode:
+        return  # Silent mode enabled, skip all logging
+    
     # FR-007: Check log level filtering
     tag_level = _infer_tag_level(tag)
     if tag_level < _current_level:
@@ -300,6 +306,20 @@ def set_level(level: LogLevel) -> None:
     if level not in _LEVEL_VALUES:
         raise ValueError(f"Invalid level: {level}. Must be one of {list(_LEVEL_VALUES.keys())}")
     _current_level = _LEVEL_VALUES[level]
+
+
+def set_silent_mode(silent: bool) -> None:
+    """Enable or disable silent mode for interactive sessions.
+    
+    When silent mode is enabled, all log output is suppressed.
+    This is useful for chat/interactive modes where log noise
+    would interfere with the user experience.
+    
+    Args:
+        silent: True to enable silent mode, False to disable
+    """
+    global _silent_mode
+    _silent_mode = silent
 
 
 def drain_spans() -> list[Span]:

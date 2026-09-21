@@ -1,0 +1,389 @@
+#!/usr/bin/env python3
+"""
+Build script for LangAgent binary packaging with PyInstaller.
+
+This script:
+1. Validates pre-build requirements (PyInstaller, spec file, entry point)
+2. Injects version and commit hash metadata
+3. Invokes PyInstaller to build single-file binary
+4. Validates post-build artifacts (size, format, executability)
+
+Exit codes:
+  0 - Build succeeded
+  1 - Build failed (PyInstaller error)
+  2 - Pre-build validation failed
+  3 - Post-build validation failed
+
+Constitutional Requirements:
+- Article X: No secrets packaged
+- Article III: LangSmith excluded
+- Article XI: Self-contained binary
+"""
+
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+
+
+# Repository root
+REPO_ROOT = Path(__file__).parent.parent
+SPEC_FILE = REPO_ROOT / "scripts" / "build_binary.spec"
+ENTRY_POINT = REPO_ROOT / "langagent" / "__main__.py"
+PYPROJECT_TOML = REPO_ROOT / "pyproject.toml"
+BUILD_METADATA = REPO_ROOT / "langagent" / "_build_metadata.py"
+DIST_DIR = REPO_ROOT / "dist"
+BUILD_DIR = REPO_ROOT / "build"
+BINARY_PATH = DIST_DIR / "langagent"
+
+
+def log_info(msg: str):
+    """Print info message."""
+    print(f"[INFO] {msg}")
+
+
+def log_error(msg: str):
+    """Print error message to stderr."""
+    print(f"[ERROR] {msg}", file=sys.stderr)
+
+
+def validate_pre_build() -> bool:
+    """
+    Validate pre-build requirements.
+    
+    Returns:
+        True if all checks pass, False otherwise
+    """
+    log_info("Validating pre-build requirements...")
+    
+    # Check PyInstaller installed
+    try:
+        import PyInstaller
+        log_info(f"PyInstaller {PyInstaller.__version__} installed")
+    except ImportError:
+        log_error("PyInstaller not installed")
+        log_error("Run: pip install pyinstaller>=6.0,<7.0")
+        return False
+    
+    # Check spec file exists
+    if not SPEC_FILE.exists():
+        log_error(f"Spec file not found: {SPEC_FILE}")
+        return False
+    log_info(f"Spec file: {SPEC_FILE}")
+    
+    # Check entry point exists
+    if not ENTRY_POINT.exists():
+        log_error(f"Entry point not found: {ENTRY_POINT}")
+        return False
+    log_info(f"Entry point: {ENTRY_POINT}")
+    
+    # Check pyproject.toml exists and is parseable
+    if not PYPROJECT_TOML.exists():
+        log_error(f"pyproject.toml not found: {PYPROJECT_TOML}")
+        return False
+    
+    try:
+        with open(PYPROJECT_TOML, "rb") as f:
+            tomllib.load(f)
+        log_info(f"pyproject.toml: {PYPROJECT_TOML}")
+    except Exception as e:
+        log_error(f"Cannot parse pyproject.toml: {e}")
+        return False
+    
+    # Check git available (or env var set)
+    if not os.getenv("LANGAGENT_COMMIT"):
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            cwd=REPO_ROOT,
+        )
+        if result.returncode != 0:
+            log_error("Git not available and LANGAGENT_COMMIT not set")
+            log_error("Run in git repository or set LANGAGENT_COMMIT env var")
+            return False
+    
+    log_info("Pre-build validation passed")
+    return True
+
+
+def extract_version() -> str:
+    """
+    Extract version from pyproject.toml or environment.
+    
+    Returns:
+        Version string (e.g., "0.1.0")
+    """
+    # Check environment variable first
+    if version := os.getenv("LANGAGENT_VERSION"):
+        log_info(f"Using version from LANGAGENT_VERSION: {version}")
+        return version
+    
+    # Read from pyproject.toml
+    with open(PYPROJECT_TOML, "rb") as f:
+        pyproject = tomllib.load(f)
+    
+    version = pyproject["project"]["version"]
+    log_info(f"Using version from pyproject.toml: {version}")
+    return version
+
+
+def extract_commit() -> str:
+    """
+    Extract git commit hash or use environment variable.
+    
+    Returns:
+        7-character commit hash (e.g., "a1b2c3d")
+    """
+    # Check environment variable first
+    if commit := os.getenv("LANGAGENT_COMMIT"):
+        log_info(f"Using commit from LANGAGENT_COMMIT: {commit}")
+        return commit[:7]  # Truncate to 7 chars
+    
+    # Get from git
+    result = subprocess.run(
+        ["git", "rev-parse", "--short=7", "HEAD"],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+    )
+    
+    if result.returncode != 0:
+        log_error("Failed to get git commit hash")
+        return "unknown"
+    
+    commit = result.stdout.strip()
+    log_info(f"Using commit from git: {commit}")
+    return commit
+
+
+def inject_metadata(version: str, commit: str):
+    """
+    Inject version and commit metadata into build.
+    
+    Creates a temporary _build_metadata.py file that will be
+    packaged into the binary.
+    
+    Args:
+        version: Version string
+        commit: Commit hash
+    """
+    log_info("Injecting version and commit metadata...")
+    
+    metadata_content = f'''"""
+Build metadata injected at build time.
+
+This module is automatically generated by scripts/build_binary.py
+and should not be edited manually.
+"""
+
+__version__ = "{version}"
+__commit__ = "{commit}"
+'''
+    
+    with open(BUILD_METADATA, "w") as f:
+        f.write(metadata_content)
+    
+    log_info(f"Created {BUILD_METADATA}")
+
+
+def clean_build_artifacts():
+    """Remove existing build artifacts."""
+    log_info("Cleaning build artifacts...")
+    
+    if BUILD_DIR.exists():
+        shutil.rmtree(BUILD_DIR)
+        log_info(f"Removed {BUILD_DIR}")
+    
+    if DIST_DIR.exists():
+        shutil.rmtree(DIST_DIR)
+        log_info(f"Removed {DIST_DIR}")
+
+
+def run_pyinstaller() -> bool:
+    """
+    Run PyInstaller to build binary.
+    
+    Returns:
+        True if build succeeded, False otherwise
+    """
+    log_info("Running PyInstaller...")
+    
+    # Run PyInstaller
+    result = subprocess.run(
+        [sys.executable, "-m", "PyInstaller", str(SPEC_FILE)],
+        cwd=REPO_ROOT,
+    )
+    
+    if result.returncode != 0:
+        log_error("PyInstaller build failed")
+        return False
+    
+    log_info("PyInstaller build completed")
+    return True
+
+
+def validate_post_build() -> bool:
+    """
+    Validate post-build artifacts.
+    
+    Returns:
+        True if all checks pass, False otherwise
+    """
+    log_info("Validating post-build artifacts...")
+    
+    # Check binary exists
+    if not BINARY_PATH.exists():
+        log_error(f"Binary not created: {BINARY_PATH}")
+        return False
+    log_info(f"Binary created: {BINARY_PATH}")
+    
+    # Check binary is executable
+    if not os.access(BINARY_PATH, os.X_OK):
+        log_error("Binary not executable")
+        # Try to fix
+        os.chmod(BINARY_PATH, 0o755)
+        log_info("Set executable permission")
+    
+    # Check binary size
+    size_bytes = BINARY_PATH.stat().st_size
+    size_mb = size_bytes / (1024 * 1024)
+    log_info(f"Binary size: {size_mb:.1f} MB")
+    
+    if size_mb >= 200:
+        log_error(f"Binary size {size_mb:.1f} MB exceeds 200 MB limit")
+        log_error("Check excludes list in build_binary.spec")
+        return False
+    
+    # Check binary format (Linux ELF)
+    result = subprocess.run(
+        ["file", str(BINARY_PATH)],
+        capture_output=True,
+        text=True,
+    )
+    
+    if result.returncode == 0:
+        file_output = result.stdout
+        log_info(f"Binary type: {file_output.strip()}")
+        
+        if "ELF" not in file_output:
+            log_error("Binary is not ELF format (expected for Linux)")
+            return False
+    else:
+        log_info("Could not determine binary type (file command not available)")
+    
+    log_info("Post-build validation passed")
+    return True
+
+
+def cleanup_metadata():
+    """Remove temporary metadata file."""
+    if BUILD_METADATA.exists():
+        BUILD_METADATA.unlink()
+        log_info(f"Cleaned up {BUILD_METADATA}")
+
+
+def main():
+    """Main build process."""
+    parser = argparse.ArgumentParser(
+        description="Build LangAgent binary with PyInstaller"
+    )
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Clean build artifacts before building",
+    )
+    parser.add_argument(
+        "--spec",
+        default=str(SPEC_FILE),
+        help="Path to PyInstaller spec file",
+    )
+    parser.add_argument(
+        "--version",
+        help="Override version (default: read from pyproject.toml)",
+    )
+    parser.add_argument(
+        "--commit",
+        help="Override commit hash (default: read from git)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=str(DIST_DIR),
+        help="Output directory for binary",
+    )
+    
+    args = parser.parse_args()
+    
+    print("=" * 60)
+    print("Building LangAgent Binary")
+    print("=" * 60)
+    
+    # Override environment variables if provided
+    if args.version:
+        os.environ["LANGAGENT_VERSION"] = args.version
+    if args.commit:
+        os.environ["LANGAGENT_COMMIT"] = args.commit
+    
+    try:
+        # Pre-build validation
+        if not validate_pre_build():
+            log_error("Pre-build validation failed")
+            return 2
+        
+        # Clean if requested
+        if args.clean:
+            clean_build_artifacts()
+        
+        # Extract metadata
+        version = extract_version()
+        commit = extract_commit()
+        
+        print()
+        print(f"Version: {version}")
+        print(f"Commit: {commit}")
+        print()
+        
+        # Inject metadata
+        inject_metadata(version, commit)
+        
+        # Build binary
+        if not run_pyinstaller():
+            log_error("Build failed")
+            cleanup_metadata()
+            return 1
+        
+        # Post-build validation
+        if not validate_post_build():
+            log_error("Post-build validation failed")
+            # Remove invalid binary
+            if BINARY_PATH.exists():
+                BINARY_PATH.unlink()
+                log_info("Removed invalid binary")
+            cleanup_metadata()
+            return 3
+        
+        # Cleanup
+        cleanup_metadata()
+        
+        print()
+        print("=" * 60)
+        print("Build completed successfully!")
+        print(f"Binary: {BINARY_PATH}")
+        size_mb = BINARY_PATH.stat().st_size / (1024 * 1024)
+        print(f"Size: {size_mb:.1f} MB")
+        print("=" * 60)
+        
+        return 0
+    
+    except Exception as e:
+        log_error(f"Unexpected error: {e}")
+        import traceback
+        traceback.print_exc()
+        cleanup_metadata()
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

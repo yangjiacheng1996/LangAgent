@@ -116,7 +116,7 @@ class GuardrailPolicy(BaseModel):
 
 
 class RuntimeConfig(BaseModel):
-    """Frozen configuration container with 13 fields.
+    """Frozen configuration container with 14 fields.
     
     This represents the fully resolved agent runtime configuration after merging
     4 sources: CLI args > environment variables > .env file > builtin defaults.
@@ -137,8 +137,9 @@ class RuntimeConfig(BaseModel):
             model_name: Model identifier (required, cannot be None)
             model_base_url: Base URL for API calls (required for openai-compatible, deepseek, zhipu)
         
-        Runtime configuration (3 fields):
+        Runtime configuration (4 fields):
             checkpointer: Checkpoint storage type (memory, sqlite, postgres)
+            checkpoint: BaseCheckpointSaver instance (None from config_resolve, populated by runner)
             middleware_ids: List of middleware identifiers to load
             skill_dirs: List of skill directory paths
         
@@ -163,8 +164,9 @@ class RuntimeConfig(BaseModel):
     model_name: str | None
     model_base_url: str | None
     
-    # Runtime configuration (3 fields)
+    # Runtime configuration (4 fields)
     checkpointer: Literal["memory", "sqlite", "postgres"]
+    checkpoint: Any | None = None
     middleware_ids: list[str]
     skill_dirs: list[str]
     
@@ -209,6 +211,20 @@ class RuntimeConfig(BaseModel):
             New RuntimeConfig instance with updated guardrail_policy field
         """
         return self.model_copy(update={"guardrail_policy": policy})
+    
+    def with_checkpoint(self, checkpoint: Any) -> "RuntimeConfig":
+        """Returns new frozen instance with checkpoint field populated.
+        
+        Used by runner to attach the instantiated checkpoint saver instance
+        after checkpoint creation completes.
+        
+        Args:
+            checkpoint: The instantiated checkpoint saver (BaseCheckpointSaver)
+            
+        Returns:
+            New RuntimeConfig instance with updated checkpoint field
+        """
+        return self.model_copy(update={"checkpoint": checkpoint})
 
 
 __all__ = [

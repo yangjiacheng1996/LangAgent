@@ -76,8 +76,18 @@ def create(config) -> "BaseChatModel":
             )
         
         # Step 2: Check API key exists
+        # Try to get API key from: 1) os.environ, 2) config.dotenv_values, 3) config.env_vars
         env_var_name = ENV_VAR_MAPPING[provider]
         api_key = os.environ.get(env_var_name)
+        
+        # If not in os.environ, try dotenv_values
+        if not api_key and hasattr(config, 'dotenv_values'):
+            api_key = config.dotenv_values.get(env_var_name)
+        
+        # If still not found, try env_vars
+        if not api_key and hasattr(config, 'env_vars'):
+            api_key = config.env_vars.get(env_var_name)
+        
         if not api_key:
             raise AuthFailedError(
                 f"Required environment variable '{env_var_name}' is not set"
@@ -117,9 +127,19 @@ def create(config) -> "BaseChatModel":
         # Step 5: Instantiate the appropriate model class
         if provider == "openai":
             from langchain_openai import ChatOpenAI
+            import httpx
+            
+            # Create httpx client without proxy to avoid socks proxy interference
+            # We need to explicitly disable trust_env to prevent reading proxy from environment
+            http_client = httpx.Client(
+                timeout=60.0,
+                trust_env=False,  # Don't read proxy settings from environment variables
+            )
+            
             model = ChatOpenAI(
                 model=model_name,
                 api_key=api_key,
+                http_client=http_client,
             )
         
         elif provider == "anthropic":
@@ -138,10 +158,20 @@ def create(config) -> "BaseChatModel":
         
         elif provider in ("deepseek", "zhipu", "openai-compatible"):
             from langchain_openai import ChatOpenAI
+            import httpx
+            
+            # Create httpx client without proxy to avoid socks proxy interference
+            # We need to explicitly disable trust_env to prevent reading proxy from environment
+            http_client = httpx.Client(
+                timeout=60.0,
+                trust_env=False,  # Don't read proxy settings from environment variables
+            )
+            
             model = ChatOpenAI(
                 model=model_name,
                 api_key=api_key,
                 base_url=model_base_url,
+                http_client=http_client,
             )
         else:
             # Should never reach here due to provider validation above

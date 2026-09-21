@@ -169,6 +169,7 @@ def _dispatch_internal(
     graph: CompiledStateGraph,
     state: AgentState,
     mode: str = "invoke",
+    thread_id: str = "main",
 ) -> Any:
     """Internal dispatch logic shared by invoke and stream modes.
     
@@ -176,6 +177,7 @@ def _dispatch_internal(
         graph: CompiledStateGraph from F01
         state: Current AgentState
         mode: "invoke" or "stream"
+        thread_id: Thread ID for checkpointer session management (default: "main")
     
     Returns:
         For invoke: final AgentState
@@ -188,6 +190,7 @@ def _dispatch_internal(
         "message": "Starting ReAct turn",
         "state_messages_count": len(state.get("messages", [])),
         "mode": mode,
+        "thread_id": thread_id,
     }
     log_emit("la.lifecycle.run.turn", turn_payload)
     log_emit("la.runtime.main_loop.turn.start", turn_payload)
@@ -195,7 +198,7 @@ def _dispatch_internal(
     try:
         if mode == "invoke":
             # T112: Invoke mode - return final state
-            result_state = graph.invoke(state, config={"configurable": {"thread_id": "main"}})
+            result_state = graph.invoke(state, config={"configurable": {"thread_id": thread_id}})
             
             # Emit events and logs
             _emit_state_events(result_state)
@@ -210,7 +213,7 @@ def _dispatch_internal(
             
         elif mode == "stream":
             # T113: Stream mode - yield intermediate states
-            return _dispatch_stream_generator(graph, state)
+            return _dispatch_stream_generator(graph, state, thread_id)
         
         else:
             raise ValueError(f"Invalid mode: {mode}. Must be 'invoke' or 'stream'")
@@ -233,8 +236,13 @@ def _dispatch_internal(
             raise
 
 
-def _dispatch_stream_generator(graph: CompiledStateGraph, state: AgentState):
+def _dispatch_stream_generator(graph: CompiledStateGraph, state: AgentState, thread_id: str = "main"):
     """Generator for stream mode dispatch.
+    
+    Args:
+        graph: CompiledStateGraph from F01
+        state: Current AgentState
+        thread_id: Thread ID for checkpointer session management
     
     Yields:
         Tuple of (node_name, state_snapshot) for each node execution
@@ -242,7 +250,7 @@ def _dispatch_stream_generator(graph: CompiledStateGraph, state: AgentState):
     try:
         for chunk in graph.stream(
             state, 
-            config={"configurable": {"thread_id": "main"}}
+            config={"configurable": {"thread_id": thread_id}}
         ):
             # chunk is a dict like {node_name: output}
             # Extract node_name and get current state
@@ -339,7 +347,7 @@ def _emit_state_events(result_state: AgentState) -> None:
 
 
 @cross_cutting_stage_guard_decorator('main_loop')
-def dispatch(graph: CompiledStateGraph, state: AgentState) -> AgentState:
+def dispatch(graph: CompiledStateGraph, state: AgentState, thread_id: str = "main") -> AgentState:
     """Execute a single ReAct turn with dual-channel telemetry (invoke mode).
     
     This function drives one iteration of the ReAct loop:
@@ -351,6 +359,7 @@ def dispatch(graph: CompiledStateGraph, state: AgentState) -> AgentState:
     Args:
         graph: CompiledStateGraph from F01 state_graph_builder.build()
         state: Current AgentState (must contain at least one HumanMessage)
+        thread_id: Thread ID for checkpointer session management (default: "main")
     
     Returns:
         Updated AgentState with new messages appended
@@ -371,10 +380,10 @@ def dispatch(graph: CompiledStateGraph, state: AgentState) -> AgentState:
     
     See: contracts/dispatch.md for detailed API contract
     """
-    return _dispatch_internal(graph, state, mode="invoke")
+    return _dispatch_internal(graph, state, mode="invoke", thread_id=thread_id)
 
 
-def dispatch_stream(graph: CompiledStateGraph, state: AgentState):
+def dispatch_stream(graph: CompiledStateGraph, state: AgentState, thread_id: str = "main"):
     """Execute a single ReAct turn with streaming intermediate states.
     
     This is the streaming version of dispatch(). Instead of returning only the
@@ -383,6 +392,7 @@ def dispatch_stream(graph: CompiledStateGraph, state: AgentState):
     Args:
         graph: CompiledStateGraph from F01 state_graph_builder.build()
         state: Current AgentState (must contain at least one HumanMessage)
+        thread_id: Thread ID for checkpointer session management (default: "main")
     
     Yields:
         Tuple of (node_name, state_snapshot) for each node execution
@@ -402,7 +412,7 @@ def dispatch_stream(graph: CompiledStateGraph, state: AgentState):
     
     See: contracts/dispatch.md for detailed API contract
     """
-    return _dispatch_internal(graph, state, mode="stream")
+    return _dispatch_internal(graph, state, mode="stream", thread_id=thread_id)
 
 
 # ============================================================================
@@ -415,6 +425,7 @@ def run_until_done(
     graph: CompiledStateGraph,
     state: AgentState,
     max_turns: int = 30,
+    thread_id: str = "main",
 ) -> AgentState:
     """Run ReAct loop until convergence, interruption, or max_turns.
     
@@ -427,6 +438,7 @@ def run_until_done(
         graph: CompiledStateGraph from F01 state_graph_builder.build()
         state: Initial AgentState with HumanMessage
         max_turns: Maximum number of turns before raising TokenLimitExceededError
+        thread_id: Thread ID for checkpointer session management (default: "main")
     
     Returns:
         Final AgentState after convergence
@@ -451,10 +463,12 @@ def run_until_done(
     log_emit("la.lifecycle.run.start", {
         "message": "Starting ReAct main loop",
         "max_turns": max_turns,
+        "thread_id": thread_id,
     })
     log_emit("la.runtime.main_loop.start", {
         "message": "Main loop initialized",
         "max_turns": max_turns,
+        "thread_id": thread_id,
     })
     
     # T070: Track turn count
@@ -464,8 +478,8 @@ def run_until_done(
     try:
         # T059: Loop until convergence
         while turn_count < max_turns:
-            # Execute one turn
-            current_state = dispatch(graph, current_state)
+            # Execute one turn with thread_id
+            current_state = dispatch(graph, current_state, thread_id=thread_id)
             turn_count += 1
             
             # T073: Emit near-limit warning at 90% threshold (clarification Q2)

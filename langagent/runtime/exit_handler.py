@@ -123,7 +123,14 @@ class RuntimeExitHandler:
         if snapshot_result is None:
             try:
                 from langagent.cross_cutting import metrics_collector
-                snapshot_result = metrics_collector.snapshot()
+                from datetime import datetime, timezone
+                
+                # Create a time window for the entire session
+                # Use a reasonable window (e.g., last 24 hours to now)
+                window_end = datetime.now(timezone.utc)
+                window_start = datetime.fromtimestamp(0, tz=timezone.utc)  # Unix epoch start
+                
+                snapshot_result = metrics_collector.snapshot(window_start, window_end)
                 if snapshot_result is None:
                     # FR-005: Missing snapshot gets exit code 70
                     failed_steps.append("metrics.snapshot")

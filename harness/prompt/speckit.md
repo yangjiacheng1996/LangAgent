@@ -52,4 +52,4 @@
 我看到了你的回答，明白现在需要更新宪法。请你给出宪法更新的提示词，我会新建另一个会话，开始执行/speckit.constitution +提示词 ，来修改宪法。
 
 # /speckit.implement
-根据harness/ 目录中的LangChain、LangGraph、MDA官方文档，以及相关spec，完成F11（specs/011-eval-subsystem）的TDD软件开发和测试。
+根据harness/ 目录中的LangChain、LangGraph、MDA官方文档，以及相关spec，完成F12（specs/012-pyinstaller-binary-packaging）的TDD软件开发和测试。

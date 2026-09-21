@@ -1,0 +1,17 @@
+[project]
+name = "test-agent-smoke"
+version = "0.1.0"
+description = "LangAgent AI agent"
+requires-python = ">=3.10"
+dependencies = [
+    "langchain-core>=0.2.0",
+    "langchain-openai>=0.1.0",
+    "langgraph>=0.1.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]

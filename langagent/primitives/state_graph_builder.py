@@ -18,10 +18,12 @@ from langagent.primitives.exceptions import GraphCompileError, ToolBindingError
 # T086: Import cross_cutting_logger.emit per FR-045
 from langagent.cross_cutting.cross_cutting_logger import emit
 from langagent.primitives.langchain_types import (
+    AIMessage,
     BaseCheckpointSaver,
     BaseMessage,
     CompiledStateGraph,
     StateGraph,
+    ToolMessage,
     add_messages,
 )
 from langagent.primitives.middleware_spec import MiddlewareSpec
@@ -107,12 +109,73 @@ def build(loaded_agent, config, checkpoint: BaseCheckpointSaver) -> CompiledStat
         # Step 1: Define StateGraph with AgentState schema
         builder = StateGraph(AgentState)
         
-        # Step 2: Add a simple node for minimal graph (required by LangGraph)
-        def passthrough_node(state: AgentState) -> dict:
-            """Simple passthrough node for minimal graph."""
-            return {}
+        # Step 2: Create chat model instance for the graph
+        from langagent.primitives.chat_model_factory import create as create_chat_model
+        model = create_chat_model(config)
         
-        builder.add_node("passthrough", passthrough_node)
+        # Step 2a: Bind tools to model if any tools are specified
+        bound_model = model
+        if loaded_agent.tool_ids:
+            # TODO: In the future, we'll bind actual tools here
+            # For now, the model is used without tools
+            pass
+        
+        # Step 3: Define ReAct graph nodes
+        def model_call(state: AgentState) -> dict:
+            """Call the LLM to generate next response."""
+            messages = state.get("messages", [])
+            response = bound_model.invoke(messages)
+            return {"messages": [response]}
+        
+        def tools_execute(state: AgentState) -> dict:
+            """Execute tool calls from the last AI message."""
+            messages = state.get("messages", [])
+            if not messages:
+                return {"messages": []}
+            
+            last_message = messages[-1]
+            if not isinstance(last_message, AIMessage):
+                return {"messages": []}
+            
+            # Check if there are tool calls
+            tool_calls = getattr(last_message, "tool_calls", None) or []
+            if not tool_calls:
+                return {"messages": []}
+            
+            # Execute each tool call
+            tool_messages = []
+            for tool_call in tool_calls:
+                # TODO: Actually execute tools when tool registry is implemented
+                # For now, create placeholder ToolMessage responses
+                tool_messages.append(
+                    ToolMessage(
+                        content=f"Tool {tool_call.get('name', 'unknown')} executed successfully",
+                        tool_call_id=tool_call.get("id", "unknown"),
+                    )
+                )
+            
+            return {"messages": tool_messages}
+        
+        def should_continue(state: AgentState) -> str:
+            """Decide whether to continue to tools or end."""
+            messages = state.get("messages", [])
+            if not messages:
+                return "end"
+            
+            last_message = messages[-1]
+            if not isinstance(last_message, AIMessage):
+                return "end"
+            
+            # Check if the last message has tool calls
+            tool_calls = getattr(last_message, "tool_calls", None) or []
+            if tool_calls:
+                return "continue"
+            else:
+                return "end"
+        
+        # Step 4: Add nodes to graph
+        builder.add_node("model_call", model_call)
+        builder.add_node("tools_execute", tools_execute)
         
         # Step 3: Load user middleware from agent_dir/middleware/*.py
         middleware_specs = []
@@ -212,10 +275,24 @@ def build(loaded_agent, config, checkpoint: BaseCheckpointSaver) -> CompiledStat
                 # T088: Emit tool_bind tag per FR-044
                 emit("la.runtime.graph_compose.tool_bind", {"tool_id": tool_id})
         
-        # Step 6: Add edges to create minimal valid graph
+        # Step 5: Add edges to create ReAct graph
         from langagent.primitives.langchain_types import START, END
-        builder.add_edge(START, "passthrough")
-        builder.add_edge("passthrough", END)
+        
+        # Start -> model_call
+        builder.add_edge(START, "model_call")
+        
+        # model_call -> conditional (should_continue)
+        builder.add_conditional_edges(
+            "model_call",
+            should_continue,
+            {
+                "continue": "tools_execute",
+                "end": END
+            }
+        )
+        
+        # tools_execute -> model_call (loop back)
+        builder.add_edge("tools_execute", "model_call")
         
         # Step 7: Compile graph with checkpoint
         try:

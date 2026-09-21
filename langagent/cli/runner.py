@@ -19,7 +19,7 @@ class CliArgs(BaseModel, frozen=True):
     """
     
     # Common fields
-    subcommand: str = Field(..., description="One of: init, run, eval, doctor")
+    subcommand: str = Field(..., description="One of: init, run, eval, doctor, chat, version")
     agent_dir: str = Field(default=".", description="Path to agent directory")
     cli_args: dict[str, Any] = Field(default_factory=dict, description="Raw CLI args dict")
     
@@ -27,6 +27,7 @@ class CliArgs(BaseModel, frozen=True):
     name: Optional[str] = Field(default=None, description="Agent name for init")
     
     # Run subcommand
+    user: Optional[str] = Field(default=None, description="User prompt for run command")
     model: Optional[str] = Field(default=None, description="Model name override")
     model_provider: Optional[str] = Field(default=None, description="Model provider override")
     model_base_url: Optional[str] = Field(default=None, description="Model base URL override")
@@ -34,6 +35,9 @@ class CliArgs(BaseModel, frozen=True):
     middleware: Optional[str] = Field(default=None, description="Middleware list (comma-separated)")
     max_turns: int = Field(default=30, description="Maximum main loop turns")
     thread_id: Optional[str] = Field(default=None, description="Checkpointer thread ID")
+    
+    # Chat subcommand
+    session_id: Optional[str] = Field(default=None, description="Chat session ID for persistence")
     
     # Eval subcommand
     grader_only: Optional[str] = Field(default=None, description="Filter tasks by grader type")
@@ -46,8 +50,8 @@ class CliArgs(BaseModel, frozen=True):
     @field_validator("subcommand")
     @classmethod
     def validate_subcommand(cls, v: str) -> str:
-        """Validate subcommand is one of the 4 allowed values."""
-        allowed = {"init", "run", "eval", "doctor"}
+        """Validate subcommand is one of the 6 allowed values."""
+        allowed = {"init", "run", "eval", "doctor", "chat", "version"}
         if v not in allowed:
             raise ValueError(f"subcommand must be one of {allowed}, got {v!r}")
         return v
@@ -123,8 +127,53 @@ def parse_argv(argv: list[str]) -> CliArgs:
             agent_dir=raw_args.get("agent_dir", "."),
             cli_args=ns_to_cli_args(ns)
         )
+    elif subcommand == "run":
+        args = CliArgs(
+            subcommand="run",
+            agent_dir=raw_args.get("agent_dir", "."),
+            user=raw_args.get("user"),
+            model=raw_args.get("model"),
+            model_provider=raw_args.get("model_provider"),
+            model_base_url=raw_args.get("model_base_url"),
+            checkpointer=raw_args.get("checkpointer"),
+            middleware=raw_args.get("middleware"),
+            max_turns=raw_args.get("max_turns", 30),
+            thread_id=raw_args.get("thread_id"),
+            cli_args=ns_to_cli_args(ns)
+        )
+    elif subcommand == "eval":
+        args = CliArgs(
+            subcommand="eval",
+            agent_dir=raw_args.get("agent_dir", "."),
+            grader_only=raw_args.get("grader_only"),
+            task=raw_args.get("task"),
+            report_format=raw_args.get("report_format", "table"),
+            cli_args=ns_to_cli_args(ns)
+        )
+    elif subcommand == "doctor":
+        args = CliArgs(
+            subcommand="doctor",
+            agent_dir=raw_args.get("agent_dir", "."),
+            checks=raw_args.get("checks"),
+            cli_args=ns_to_cli_args(ns)
+        )
+    elif subcommand == "chat":
+        args = CliArgs(
+            subcommand="chat",
+            agent_dir=raw_args.get("agent_dir", "."),
+            session_id=raw_args.get("session_id"),
+            model=raw_args.get("model"),
+            model_provider=raw_args.get("model_provider"),
+            model_base_url=raw_args.get("model_base_url"),
+            cli_args=ns_to_cli_args(ns)
+        )
+    elif subcommand == "version":
+        args = CliArgs(
+            subcommand="version",
+            cli_args=ns_to_cli_args(ns)
+        )
     else:
-        # Fallback for other subcommands (to be implemented)
+        # Fallback
         args = CliArgs(
             subcommand=subcommand or "init",
             agent_dir=raw_args.get("agent_dir", "."),
@@ -151,6 +200,10 @@ def dispatch(args: CliArgs) -> int:
         return _dispatch_eval(args)
     elif args.subcommand == "doctor":
         return _dispatch_doctor(args)
+    elif args.subcommand == "chat":
+        return _dispatch_chat(args)
+    elif args.subcommand == "version":
+        return _dispatch_version(args)
     else:
         return 2  # Invalid subcommand
 
@@ -217,6 +270,10 @@ def _dispatch_run(args: CliArgs) -> int:
     5. Build state graph (F01 state_graph_builder)
     6. Run main loop (F08 main_loop_dispatcher)
     
+    User input handling:
+    - If --user is provided, use that as initial message
+    - Otherwise, read from stdin (supporting echo "prompt" | langagent run)
+    
     Args:
         args: Parsed CLI arguments
         
@@ -230,18 +287,35 @@ def _dispatch_run(args: CliArgs) -> int:
         from langagent.runtime.dir_loader import RuntimeDirLoader
         from langagent.runtime.config_resolver import RuntimeConfigResolver
         from langagent.runtime import chat_model_factory
-        from langagent.runtime import checkpoint_adapter
-        from langagent.runtime import state_graph_builder
+        from langagent.primitives import checkpoint_adapter
+        from langagent.primitives import state_graph_builder
         from langagent.runtime import main_loop_dispatcher
         from langagent.runtime.exit_handler import RuntimeExitHandler
         from langagent.cli.output_formatter import format_chat_message
-        from langchain_core.messages import AIMessage
+        from langchain_core.messages import AIMessage, HumanMessage
+        
+        # Get user input from --user parameter or stdin
+        user_input = None
+        if args.user:
+            # Use --user parameter
+            user_input = args.user
+        elif not sys.stdin.isatty():
+            # Read from stdin (pipe or redirect)
+            user_input = sys.stdin.read().strip()
+        
+        if not user_input:
+            print("Error: No user input provided. Use --user parameter or pipe input via stdin.", file=sys.stderr)
+            print("Examples:", file=sys.stderr)
+            print("  langagent run --user '你好'", file=sys.stderr)
+            print("  echo '你好' | langagent run", file=sys.stderr)
+            return 2
         
         # Stage 1: Load agent directory
         loaded_agent = RuntimeDirLoader.load(args.agent_dir)
         
         # Stage 2: Resolve runtime config
-        config = RuntimeConfigResolver.resolve(args.cli_args, args.agent_dir)
+        resolver = RuntimeConfigResolver()
+        config = resolver.resolve(args.cli_args, args.agent_dir)
         
         # Stage 3: Create model and checkpoint
         model = chat_model_factory.create(config)
@@ -251,14 +325,17 @@ def _dispatch_run(args: CliArgs) -> int:
         final_config = config.with_model(model).with_checkpoint(checkpoint)
         
         # Stage 5: Build state graph
-        graph = state_graph_builder.build(loaded_agent, final_config)
+        graph = state_graph_builder.build(loaded_agent, final_config, checkpoint)
         
-        # Stage 6: Run main loop
+        # Stage 6: Run main loop with initial user message
         max_turns = args.max_turns if args.max_turns else 30
+        thread_id = args.thread_id if args.thread_id else "run_" + str(hash(user_input))[:8]
+        initial_message = HumanMessage(content=user_input)
         final_state = main_loop_dispatcher.run_until_done(
             graph,
-            state={"messages": []},  # Initial state will be built by main_loop_dispatcher
-            max_turns=max_turns
+            state={"messages": [initial_message]},
+            max_turns=max_turns,
+            thread_id=thread_id
         )
         
         # Print chat messages to stdout (only AIMessages)
@@ -405,6 +482,215 @@ def _dispatch_doctor(args: CliArgs) -> int:
     # Stub implementation - to be replaced with actual doctor logic
     print("doctor command not yet implemented", file=sys.stderr)
     return 0
+
+
+def _dispatch_chat(args: CliArgs) -> int:
+    """Handle chat subcommand - interactive REPL with agent.
+    
+    Implements an interactive chat session with:
+    - Persistent conversation history via session_id
+    - Slash commands: /picture, /quit, /help
+    - Real-time streaming of agent responses
+    
+    Args:
+        args: Parsed CLI arguments with subcommand='chat'
+        
+    Returns:
+        Exit code (0=success, 130=interrupted, 1=error)
+    """
+    try:
+        # Import runtime modules
+        from langagent.runtime.dir_loader import RuntimeDirLoader
+        from langagent.runtime.config_resolver import RuntimeConfigResolver
+        from langagent.runtime import chat_model_factory
+        from langagent.primitives import checkpoint_adapter
+        from langagent.primitives import state_graph_builder
+        from langagent.runtime import main_loop_dispatcher
+        from langagent.runtime.exit_handler import RuntimeExitHandler
+        from langchain_core.messages import HumanMessage, AIMessage
+        from langagent.cross_cutting import logger
+        import base64
+        import uuid
+        import warnings
+        import os
+        
+        # Enable silent mode for chat - suppress all logging output
+        logger.set_silent_mode(True)
+        
+        # Suppress langchain warnings
+        warnings.filterwarnings('ignore')
+        os.environ['PYTHONWARNINGS'] = 'ignore'
+        
+        # Import readline for better input handling (arrow keys, history, etc.)
+        try:
+            import readline
+            # Enable tab completion and history
+            readline.parse_and_bind('tab: complete')
+            readline.parse_and_bind('set editing-mode emacs')
+        except ImportError:
+            # readline not available on this platform (e.g., Windows)
+            pass
+        
+        # Initialize session with thread_id
+        session_id = args.session_id or str(uuid.uuid4())
+        thread_id = session_id  # Use session_id as thread_id for checkpointer
+        
+        # Setup runtime (stages 1-5)
+        loaded_agent = RuntimeDirLoader.load(args.agent_dir)
+        resolver = RuntimeConfigResolver()
+        config = resolver.resolve(args.cli_args, args.agent_dir)
+        model = chat_model_factory.create(config)
+        checkpoint = checkpoint_adapter.create(config)
+        final_config = config.with_model(model).with_checkpoint(checkpoint)
+        graph = state_graph_builder.build(loaded_agent, final_config, checkpoint)
+        
+        # Load existing conversation history from checkpointer if session exists
+        messages = []
+        try:
+            # Try to get existing state from checkpointer
+            existing_state = graph.get_state(config={"configurable": {"thread_id": thread_id}})
+            if existing_state and existing_state.values.get("messages"):
+                messages = list(existing_state.values["messages"])
+                print(f"Loaded {len(messages)} messages from session: {session_id}")
+        except Exception:
+            # Session doesn't exist yet, start fresh
+            pass
+        
+        # Print welcome message
+        print(f"LangAgent Chat Session: {session_id}")
+        print("Type your message and press Enter. Use /quit to exit, /help for commands.")
+        print("-" * 60)
+        
+        # REPL loop
+        while True:
+            try:
+                # Read user input
+                user_input = input("\nYou: ").strip()
+                
+                if not user_input:
+                    continue
+                
+                # Handle slash commands
+                if user_input.startswith("/"):
+                    command_parts = user_input.split(maxsplit=1)
+                    command = command_parts[0].lower()
+                    
+                    if command == "/quit":
+                        print("Goodbye!")
+                        break
+                    elif command == "/help":
+                        print("\nAvailable commands:")
+                        print("  /picture <path>  - Load image and send to agent")
+                        print("  /quit            - Exit chat session")
+                        print("  /help            - Show this help message")
+                        continue
+                    elif command == "/picture":
+                        if len(command_parts) < 2:
+                            print("Usage: /picture <path>")
+                            continue
+                        
+                        image_path = command_parts[1]
+                        try:
+                            with open(image_path, "rb") as f:
+                                image_data = base64.b64encode(f.read()).decode()
+                            
+                            # Create message with image
+                            message = HumanMessage(
+                                content=[
+                                    {"type": "text", "text": "Please analyze this image:"},
+                                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
+                                ]
+                            )
+                            messages.append(message)
+                            print(f"Image loaded: {image_path}")
+                        except Exception as e:
+                            print(f"Error loading image: {e}")
+                            continue
+                    else:
+                        print(f"Unknown command: {command}. Type /help for available commands.")
+                        continue
+                else:
+                    # Regular text message
+                    messages.append(HumanMessage(content=user_input))
+                
+                # Run agent with current messages
+                final_state = main_loop_dispatcher.run_until_done(
+                    graph,
+                    state={"messages": messages},
+                    max_turns=30,
+                    thread_id=thread_id
+                )
+                
+                # Extract and display agent response
+                updated_messages = final_state.get("messages", [])
+                messages = updated_messages  # Update conversation history
+                
+                # Find and print the last AI message
+                for msg in reversed(updated_messages):
+                    if isinstance(msg, AIMessage):
+                        print(f"\nAgent: {msg.content}")
+                        break
+                
+            except KeyboardInterrupt:
+                print("\n\nChat interrupted. Type /quit to exit or continue chatting.")
+                continue
+            except EOFError:
+                print("\nGoodbye!")
+                break
+        
+        # Cleanup
+        exit_handler = RuntimeExitHandler()
+        return exit_handler.cleanup({"messages": messages}, final_config)
+        
+    except KeyboardInterrupt:
+        print("\nInterrupted", file=sys.stderr)
+        return 130
+    except Exception as e:
+        print(f"Error during chat: {e}", file=sys.stderr)
+        return 1
+
+
+def _dispatch_version(args: CliArgs) -> int:
+    """Handle version subcommand.
+    
+    Displays LangAgent version information including:
+    - Version number
+    - Git commit hash
+    - Build metadata
+    
+    Args:
+        args: Parsed CLI arguments with subcommand='version'
+        
+    Returns:
+        Exit code (0=success)
+    """
+    try:
+        # Try to import build metadata
+        try:
+            from langagent._build_metadata import __version__, __commit__
+            print(f"LangAgent v{__version__}")
+            print(f"Commit: {__commit__}")
+        except ImportError:
+            # Development mode - read from pyproject.toml
+            try:
+                import tomllib
+                from pathlib import Path
+                pyproject_path = Path(__file__).parent.parent.parent / "pyproject.toml"
+                if pyproject_path.exists():
+                    with open(pyproject_path, "rb") as f:
+                        pyproject = tomllib.load(f)
+                        version = pyproject.get("project", {}).get("version", "dev")
+                        print(f"LangAgent v{version} (development mode)")
+                else:
+                    print("LangAgent (version unknown)")
+            except Exception:
+                print("LangAgent (version unknown)")
+        
+        return 0
+        
+    except Exception as e:
+        print(f"Error retrieving version: {e}", file=sys.stderr)
+        return 1
 
 
 def main() -> None:

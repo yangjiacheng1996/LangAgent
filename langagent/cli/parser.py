@@ -16,11 +16,30 @@ def build_parser() -> argparse.ArgumentParser:
     Returns:
         ArgumentParser configured with init/run/eval/doctor subcommands
     """
+    # Get version info from build metadata if available
+    version_str = "dev"
+    try:
+        from langagent._build_metadata import __version__, __commit__
+        version_str = f"{__version__} (commit {__commit__})"
+    except ImportError:
+        # Development mode - no build metadata
+        try:
+            import tomllib
+            from pathlib import Path
+            pyproject_path = Path(__file__).parent.parent.parent / "pyproject.toml"
+            if pyproject_path.exists():
+                with open(pyproject_path, "rb") as f:
+                    pyproject = tomllib.load(f)
+                    version_str = pyproject.get("project", {}).get("version", "dev")
+        except Exception:
+            pass
+    
     parser = argparse.ArgumentParser(
         prog="langagent",
-        description="Constitutional LLM Agent Framework - Build, run, and evaluate LLM agents with governance constraints",
+        description=f"LangAgent v{version_str}\n\nConstitutional LLM Agent Framework - Build, run, and evaluate LLM agents with governance constraints",
         epilog="Exit codes: 0=success, 1=generic error, 2=invalid args, 64=config error, 65=missing resource, "
-               "66=missing evals dir, 67=name conflict, 70=internal error, 78=grader error, 130=keyboard interrupt"
+               "66=missing evals dir, 67=name conflict, 70=internal error, 78=grader error, 130=keyboard interrupt",
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
     
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
@@ -61,6 +80,11 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="?",
         default=".",
         help="Path to agent directory (default: current directory)"
+    )
+    parser_run.add_argument(
+        "--user",
+        type=str,
+        help="User prompt to send to the agent (alternative to stdin)"
     )
     parser_run.add_argument(
         "--model",
@@ -150,6 +174,49 @@ def build_parser() -> argparse.ArgumentParser:
         "--checks",
         type=str,
         help="Run specific checks only (comma-separated: model,checkpointer,skills,instructions). Default: all checks"
+    )
+    
+    # Subcommand: chat
+    parser_chat = subparsers.add_parser(
+        "chat",
+        help="Start an interactive chat session with the agent",
+        description="Launch an interactive REPL for conversing with the agent. "
+                    "Supports slash commands: /picture <path> to load images, /quit to exit. "
+                    "Exit codes: 0=success, 130=interrupted, 1=error"
+    )
+    parser_chat.add_argument(
+        "agent_dir",
+        nargs="?",
+        default=".",
+        help="Path to agent directory (default: current directory)"
+    )
+    parser_chat.add_argument(
+        "--session-id",
+        type=str,
+        help="Session ID for conversation persistence (creates new session if not provided)"
+    )
+    parser_chat.add_argument(
+        "--model",
+        type=str,
+        help="Override model name"
+    )
+    parser_chat.add_argument(
+        "--model-provider",
+        type=str,
+        help="Override model provider"
+    )
+    parser_chat.add_argument(
+        "--model-base-url",
+        type=str,
+        help="Override model API base URL"
+    )
+    
+    # Subcommand: version
+    parser_version = subparsers.add_parser(
+        "version",
+        help="Display LangAgent version information",
+        description="Show version, commit hash, and build metadata. "
+                    "Exit codes: 0=success"
     )
     
     return parser
