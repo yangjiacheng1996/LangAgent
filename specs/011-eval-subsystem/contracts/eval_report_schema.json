@@ -1,0 +1,250 @@
+# EvalReport JSON Schema Contract
+
+**Version**: v0.1.0  
+**Feature**: F11 Eval Subsystem  
+**Purpose**: Define the JSON contract for evaluation reports persisted to `~/.local/share/langagent/reports/`
+
+---
+
+## Schema Definition
+
+### Top-Level Structure
+
+```json
+{
+  "report_id": "string (UUID v4)",
+  "generated_at": "string (ISO 8601 datetime)",
+  "agent_dir": "string (absolute path)",
+  "task_results": [
+    {
+      "task_id": "string",
+      "passed": "boolean",
+      "actual_output": "string",
+      "latency_ms": "number",
+      "exit_code": "integer",
+      "error": "string | null",
+      "token_usage": {
+        "model_name": {
+          "input": "integer",
+          "output": "integer"
+        }
+      }
+    }
+  ],
+  "pass_rate": "number (0.0-1.0)",
+  "p50_latency_ms": "number",
+  "p95_latency_ms": "number",
+  "token_usage": {
+    "model_name": {
+      "input": "integer",
+      "output": "integer"
+    }
+  },
+  "cost_usd": "number"
+}
+```
+
+---
+
+## Field Specifications
+
+### Report Metadata
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `report_id` | string | Yes | UUID v4 unique identifier |
+| `generated_at` | string | Yes | ISO 8601 timestamp (e.g., "2026-09-21T14:30:22.123456Z") |
+| `agent_dir` | string | Yes | Absolute path to agent directory |
+
+### Task Results Array
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `task_id` | string | Yes | References EvalTaskSpec.task_id |
+| `passed` | boolean | Yes | Grader result (true=pass, false=fail) |
+| `actual_output` | string | Yes | Agent's final output text |
+| `latency_ms` | number | Yes | Task execution time in milliseconds |
+| `exit_code` | integer | Yes | Task-level exit code (0=success, >0=failure) |
+| `error` | string \| null | Yes | Error message if task crashed (null if succeeded) |
+| `token_usage` | object | Yes | Per-model token counts (see Token Usage Object) |
+
+### Aggregated Metrics
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `pass_rate` | number | Yes | Range: 0.0 to 1.0 (passed / total) |
+| `p50_latency_ms` | number | Yes | Median latency, ≥0 |
+| `p95_latency_ms` | number | Yes | 95th percentile latency, ≥p50_latency_ms |
+| `token_usage` | object | Yes | Aggregated by model (see Token Usage Object) |
+| `cost_usd` | number | Yes | Estimated cost, ≥0 |
+
+### Token Usage Object
+
+```json
+{
+  "gpt-4o": {
+    "input": 12500,
+    "output": 3200
+  },
+  "claude-3-5-sonnet": {
+    "input": 8000,
+    "output": 1500
+  }
+}
+```
+
+- Key: Model name (string)
+- Value: Object with `input` (integer) and `output` (integer) token counts
+
+---
+
+## Example Report
+
+```json
+{
+  "report_id": "a3f5c8e2-4d1b-4a6c-9e2f-1b3d4c5e6f7a",
+  "generated_at": "2026-09-21T14:30:22.123456Z",
+  "agent_dir": "/home/user/agents/my-agent",
+  "task_results": [
+    {
+      "task_id": "greeting-001",
+      "passed": true,
+      "actual_output": "Hello, Alice!",
+      "latency_ms": 245.3,
+      "exit_code": 0,
+      "error": null,
+      "token_usage": {
+        "gpt-4o": {
+          "input": 150,
+          "output": 20
+        }
+      }
+    },
+    {
+      "task_id": "code-gen-001",
+      "passed": false,
+      "actual_output": "I cannot write code.",
+      "latency_ms": 1820.7,
+      "exit_code": 1,
+      "error": null,
+      "token_usage": {
+        "gpt-4o": {
+          "input": 320,
+          "output": 15
+        }
+      }
+    },
+    {
+      "task_id": "timeout-test",
+      "passed": false,
+      "actual_output": "",
+      "latency_ms": 60000.0,
+      "exit_code": 70,
+      "error": "Task timeout-test exceeded 60s",
+      "token_usage": {
+        "gpt-4o": {
+          "input": 200,
+          "output": 0
+        }
+      }
+    }
+  ],
+  "pass_rate": 0.333,
+  "p50_latency_ms": 1820.7,
+  "p95_latency_ms": 60000.0,
+  "token_usage": {
+    "gpt-4o": {
+      "input": 670,
+      "output": 35
+    }
+  },
+  "cost_usd": 0.0423
+}
+```
+
+---
+
+## Validation Rules
+
+### Schema Validation
+
+1. **JSON Syntax**: Must be valid JSON
+2. **Required Fields**: All required fields must be present
+3. **Type Checking**: All fields must match specified types
+4. **Range Constraints**:
+   - `pass_rate`: 0.0 ≤ pass_rate ≤ 1.0
+   - `p50_latency_ms`: ≥0
+   - `p95_latency_ms`: ≥p50_latency_ms
+   - `cost_usd`: ≥0
+   - `exit_code`: Valid Unix exit codes (0, 1, 4, 64, 65, 66, 70, 78, 130)
+5. **UUID Format**: `report_id` must be valid UUID v4
+6. **ISO 8601**: `generated_at` must be valid ISO 8601 timestamp
+
+### Business Logic Validation
+
+1. **pass_rate Calculation**: Must equal (count of passed=true) / (total task_results)
+2. **Latency Percentiles**: p95 ≥ p50 (must be computed from task_results latency_ms)
+3. **Token Usage Aggregation**: Top-level token_usage must sum all task_results token_usage by model
+4. **Error Correlation**: If task_results[i].error is not null, task_results[i].passed must be false
+
+---
+
+## File Naming Convention
+
+Reports are persisted to:
+
+```
+~/.local/share/langagent/reports/<agent-name>-<timestamp>.json
+```
+
+Where:
+- `<agent-name>`: Basename of `agent_dir` (e.g., "my-agent")
+- `<timestamp>`: Format `YYYYMMDD-HHMMSS` (e.g., "20260921-143022")
+
+Example full path:
+```
+/home/user/.local/share/langagent/reports/my-agent-20260921-143022.json
+```
+
+---
+
+## Exit Code Mapping
+
+| Exit Code | Meaning | Example Scenario |
+|-----------|---------|------------------|
+| 0 | Success | Task passed grader check |
+| 1 | Generic failure | Grader returned false |
+| 4 | I/O error | Cannot read agent output |
+| 64 | Usage error | Invalid CLI arguments |
+| 65 | Data error | Invalid YAML format |
+| 66 | Input not found | Agent directory missing |
+| 70 | Software error | Task timeout, model failure |
+| 78 | Config error | Unknown grader type |
+| 130 | SIGINT | User interrupted (Ctrl+C) |
+
+---
+
+## Versioning
+
+**Current Version**: v0.1.0
+
+### Changelog
+
+- **v0.1.0** (2026-09-21): Initial schema with 9 top-level fields + task_results array
+
+### Migration Path (Future)
+
+If schema changes in v0.2.0+:
+1. Add `schema_version` field to JSON root
+2. Provide backward-compatible reader for v0.1.0 reports
+3. Document migration in `harness/top_level_design/module_schemas.md`
+
+---
+
+## Implementation Notes
+
+- Reports are generated by `eval.report_aggregator.aggregate(task_results)`
+- Persisted by `runtime.exit_handler.cleanup(eval_report=...)`
+- JSON is indented with 2 spaces for human readability
+- File permissions: 0644 (user read/write, group/others read-only)
+- Directory auto-created if missing: `reports_dir.mkdir(parents=True, exist_ok=True)`

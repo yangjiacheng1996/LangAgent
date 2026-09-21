@@ -1,0 +1,7 @@
+task_id: regex-001
+input: "The answer is 42"
+expected: "\\d+"
+grader: regex
+timeout_s: 30
+metadata:
+  category: pattern

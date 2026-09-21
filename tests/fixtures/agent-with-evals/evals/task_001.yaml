@@ -1,0 +1,8 @@
+task_id: exact-match-001
+input: "Hello, World!"
+expected: "Hello, World!"
+grader: exact_match
+timeout_s: 30
+metadata:
+  category: basic
+  priority: high

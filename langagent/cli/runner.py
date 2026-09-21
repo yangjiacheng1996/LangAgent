@@ -306,79 +306,82 @@ def _dispatch_run(args: CliArgs) -> int:
 def _dispatch_eval(args: CliArgs) -> int:
     """Handle eval subcommand.
     
-    Executes the 3-stage eval pipeline per FR-CLI-018:
-    1. Load agent directory (F06 dir_loader)
-    2. Resolve runtime config (F07 config_resolver)
-    3. Run eval tasks (F11 eval_runner) and display results
+    Executes the evaluation pipeline:
+    1. Run eval tasks (F11 eval_runner)
+    2. Display results
     
     Args:
         args: Parsed CLI arguments with subcommand='eval'
         
     Returns:
-        Exit code (0=success, error codes per FR-CLI-027)
+        Exit code (0=all pass, >0=failures or errors)
     """
     try:
-        # Conditional import per FR-CLI-018
+        # Import eval runner
         from langagent.eval.runner import run as eval_runner_run
-    except ModuleNotFoundError:
-        # F11 (Eval System) not yet implemented - return error code
-        print("Error: Eval system (F11) not yet implemented", file=sys.stderr)
-        return 1
+        from langagent.cross_cutting.logger import emit
         
-    try:
-        from langagent.runtime.dir_loader import RuntimeDirLoader
-        from langagent.runtime.config_resolver import RuntimeConfigResolver
-        from langagent.runtime.exit_handler import RuntimeExitHandler
-        from langagent.cli.output_formatter import format_eval_report_stdout
+        # Emit start log
+        emit("la.lifecycle.eval.start", {"agent_dir": args.agent_dir})
         
-        # Stage 1: Load agent directory
-        dir_loader = RuntimeDirLoader()
-        loaded = dir_loader.load(args.agent_dir)
+        # Run evaluation with filters
+        result = eval_runner_run(
+            agent_dir=args.agent_dir,
+            grader_only=args.grader_only,
+            task_id=args.task
+        )
         
-        # Stage 2: Resolve runtime config
-        config_resolver = RuntimeConfigResolver()
-        config = config_resolver.resolve(args.cli_args, args.agent_dir)
+        # Format and print report summary
+        report = result.eval_report
+        print(f"\n{'='*60}")
+        print(f"Eval Report: {args.agent_dir}")
+        print(f"{'='*60}")
+        print(f"Tasks run: {len(report.task_results)}")
+        print(f"Pass rate: {report.pass_rate*100:.1f}% ({sum(1 for t in report.task_results if t['passed'])}/{len(report.task_results)})")
         
-        # Stage 3: Construct eval args dict per FR-CLI-025
-        eval_args = {
-            'cli_args': vars(args),  # Convert CliArgs to dict
-            'grader_only': args.cli_args.get('grader_only'),
-            'task': args.cli_args.get('task'),
-        }
+        if report.task_results:
+            print(f"P50 latency: {report.p50_latency_ms:.1f}ms")
+            print(f"P95 latency: {report.p95_latency_ms:.1f}ms")
         
-        # Run evaluation
-        result = eval_runner_run(args.agent_dir, config=config, args=eval_args)
+        print(f"\nDetails:")
+        for task in report.task_results:
+            status = "✓ PASS" if task['passed'] else "✗ FAIL"
+            print(f"  [{status}] {task['task_id']} ({task['latency_ms']:.0f}ms)")
+            if task['error_message']:
+                print(f"    Error: {task['error_message']}")
         
-        # Format and print report to stdout
-        report_output = format_eval_report_stdout(result.eval_report)
-        print(report_output)
+        print(f"{'='*60}\n")
         
-        # Cleanup with eval_report
-        exit_handler = RuntimeExitHandler()
-        return exit_handler.cleanup(result.final_state, config, eval_report=result.eval_report)
+        # Emit summary log
+        emit("la.lifecycle.eval.summary", {
+            "pass_rate": report.pass_rate,
+            "total_tasks": len(report.task_results),
+            "passed": sum(1 for t in report.task_results if t['passed']),
+            "failed": sum(1 for t in report.task_results if not t['passed'])
+        })
+        
+        return result.exit_code
         
     except KeyboardInterrupt:
         print("\nEval interrupted by user", file=sys.stderr)
         return 130
     except Exception as e:
-        # Map eval errors to exit codes per FR-CLI-027
+        # Map eval errors to exit codes
         error_name = type(e).__name__
         
-        if error_name == "EvalsDirMissingError":
-            print(f"Error: evals/ directory not found in {args.agent_dir}", file=sys.stderr)
-            return 66  # Per workflow.md §langagent eval failure mode
-        elif error_name == "EvalTimeoutError":
-            print(f"Error: Evaluation timed out: {e}", file=sys.stderr)
+        if "NotFound" in error_name or "Missing" in error_name:
+            print(f"Error: {e}", file=sys.stderr)
+            return 66
+        elif "Timeout" in error_name:
+            print(f"Error: {e}", file=sys.stderr)
             return 70
-        elif error_name == "EvalGraderUnknownError":
-            print(f"Error: Unknown grader type: {e}", file=sys.stderr)
+        elif "Unknown" in error_name or "Grader" in error_name:
+            print(f"Error: {e}", file=sys.stderr)
             return 78
-        elif error_name == "AgentDirNotFoundError":
-            print(f"Error: Agent directory not found: {args.agent_dir}", file=sys.stderr)
-            return 65
         else:
-            # Generic eval error
             print(f"Error during eval: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
             return 1
 
 

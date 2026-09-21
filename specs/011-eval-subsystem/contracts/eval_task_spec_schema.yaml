@@ -1,0 +1,172 @@
+# EvalTaskSpec YAML Schema Contract
+
+**Version**: v0.2.0  
+**Feature**: F11 Eval Subsystem  
+**Purpose**: Define the YAML contract for evaluation task specifications in `<agent-dir>/evals/*.yaml`
+
+---
+
+## Schema Definition
+
+### Fields
+
+```yaml
+# Required fields
+task_id: string                 # Unique identifier (alphanumeric + underscore/hyphen)
+input: string                   # Input prompt for the agent
+
+# Optional fields
+expected: string | list<string> | dict | null  # Expected output (type depends on grader)
+grader: enum                    # One of: exact_match, contains, regex, llm_judge, tool_call_match
+timeout_s: integer              # Task timeout in seconds (≥1, default: 60)
+metadata: dict                  # Arbitrary user metadata (default: {})
+grader_extensibility: list<string>  # Future grader types (default: [], v1 unused)
+```
+
+### Enum Values
+
+**grader**:
+- `exact_match` (default)
+- `contains`
+- `regex`
+- `llm_judge`
+- `tool_call_match`
+
+---
+
+## Field Constraints
+
+| Field | Type | Required | Default | Validation |
+|-------|------|----------|---------|------------|
+| `task_id` | string | Yes | — | Non-empty, alphanumeric+underscore/hyphen, unique within eval suite |
+| `input` | string | Yes | — | Non-empty string |
+| `expected` | string \| list \| dict \| null | No | null | Type must align with grader (tool_call_match requires dict) |
+| `grader` | enum | No | `exact_match` | Must be one of 5 valid enum values |
+| `timeout_s` | integer | No | 60 | Must be ≥1 |
+| `metadata` | dict | No | {} | Arbitrary key-value pairs |
+| `grader_extensibility` | list | No | [] | Reserved for future use |
+
+---
+
+## Examples
+
+### Example 1: Exact Match (Default)
+
+```yaml
+task_id: greeting-001
+input: "Say hello to Alice"
+expected: "Hello, Alice!"
+timeout_s: 30
+metadata:
+  category: greeting
+  priority: high
+```
+
+### Example 2: Contains (Substring Match)
+
+```yaml
+task_id: code-gen-001
+input: "Write a Python function to calculate factorial"
+expected:
+  - "def factorial"
+  - "return"
+grader: contains
+timeout_s: 45
+```
+
+### Example 3: Regex Pattern
+
+```yaml
+task_id: phone-format-001
+input: "Format this phone number: 1234567890"
+expected: "^\\d{3}-\\d{3}-\\d{4}$"
+grader: regex
+timeout_s: 20
+```
+
+### Example 4: LLM Judge (Semantic)
+
+```yaml
+task_id: translation-001
+input: "Translate 'Hello' to Spanish"
+expected:
+  - "Hola"
+  - "Buenos días"
+grader: llm_judge
+timeout_s: 60
+metadata:
+  acceptable_variants: ["Hola", "Buenos días", "Qué tal"]
+```
+
+### Example 5: Tool Call Match
+
+```yaml
+task_id: search-tool-001
+input: "Search for 'LangChain documentation'"
+expected:
+  tool_id: web_search
+  args:
+    query: LangChain documentation
+grader: tool_call_match
+timeout_s: 90
+```
+
+---
+
+## Validation Rules
+
+### Schema-Level Validation (task_loader)
+
+1. **YAML Parsing**: Must be valid YAML syntax
+2. **Required Fields**: `task_id` and `input` must be present
+3. **Type Checking**: All fields must match expected types
+4. **Grader Enum**: `grader` must be one of 5 valid values
+5. **Timeout Range**: `timeout_s` must be ≥1
+6. **Grader-Expected Alignment**: `tool_call_match` requires `expected: dict`
+
+### Suite-Level Validation (task_loader)
+
+1. **Unique task_id**: No duplicate `task_id` across all YAML files in `evals/`
+2. **Directory Existence**: `evals/` directory may be absent (returns empty list)
+3. **File Extension**: Only `*.yaml` files are loaded (`.yml` also accepted)
+
+---
+
+## Error Handling
+
+| Error Condition | Exception Type | Exit Code |
+|-----------------|----------------|-----------|
+| YAML syntax error | `EvalYamlParseError` | 65 (EX_DATAERR) |
+| Missing required field | `pydantic.ValidationError` | 65 |
+| Invalid grader enum | `EvalGraderUnknownError` | 78 (EX_CONFIG) |
+| timeout_s < 1 | `pydantic.ValidationError` | 65 |
+| tool_call_match + non-dict expected | `pydantic.ValidationError` | 65 |
+| Duplicate task_id | `EvalDuplicateTaskIdError` | 65 |
+
+---
+
+## Versioning
+
+**Current Version**: v0.2.0
+
+### Changelog
+
+- **v0.2.0** (2026-09-21): Added `@field_validator` for grader-expected type alignment (tool_call_match requires dict)
+- **v0.1.0** (2026-09-14): Initial schema with 7 fields
+
+### Migration Path (Future)
+
+If `grader_extensibility` is populated in v2+:
+1. Bump schema_version to v0.3.0
+2. Update `grader` Literal enum with new values
+3. Provide migrator script to backfill old YAML files
+4. Document in `grader_extensibility` field usage
+
+---
+
+## Implementation Notes
+
+- YAML files are loaded by `eval.task_loader.load_all(evals_dir: str)`
+- Pydantic validates each spec via `EvalTaskSpec.model_validate(yaml_dict)`
+- Invalid specs raise exceptions immediately (fail-fast)
+- Loader returns `list[EvalTaskSpec]` sorted by task_id (deterministic)

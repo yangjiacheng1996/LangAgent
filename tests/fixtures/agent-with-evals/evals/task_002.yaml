@@ -1,0 +1,9 @@
+task_id: contains-001
+input: "The quick brown fox jumps over the lazy dog"
+expected:
+  - "quick"
+  - "fox"
+grader: contains
+timeout_s: 30
+metadata:
+  category: substring
