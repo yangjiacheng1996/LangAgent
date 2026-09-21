@@ -1,13 +1,12 @@
-"""Minimal agent for testing."""
-
-from typing import TypedDict
-from langchain_core.messages import BaseMessage
+"""Minimal test agent."""
+from typing import Any
 
 
-class AgentState(TypedDict):
-    """Agent state with 5 required fields."""
-    messages: list[BaseMessage]
-    todos: list[str]
-    files: dict[str, str]
-    context: dict[str, str]
-    scratchpad: str
+def get_instructions() -> str:
+    """Return agent instructions."""
+    return "You are a helpful assistant."
+
+
+def process_message(message: str) -> dict[str, Any]:
+    """Process a message and return a response."""
+    return {"role": "assistant", "content": f"Echo: {message}"}

@@ -248,6 +248,7 @@ class RuntimeDirLoader:
         (agent_dir / "skills").mkdir(exist_ok=True)
         (agent_dir / "tools").mkdir(exist_ok=True)
         (agent_dir / "middleware").mkdir(exist_ok=True)
+        (agent_dir / "evals").mkdir(exist_ok=True)
         
         # Create example skill
         example_skill_dir = agent_dir / "skills" / "example_skill"
